@@ -1,0 +1,34 @@
+*.build
+*.deb
+*.tar.gz
+*.dsc
+*.changes
+*.debhelper.log
+*.debhelper
+*.substvars
+*.o
+*.swp
+*.un~
+*.pyc
+.tern-port
+
+# Ignore all debian package build files
+/debian/*
+# Exclude only specific control files, configuration and maintainer scripts
+!/debian/changelog
+!/debian/compat
+!/debian/control
+!/debian/copyright
+!/debian/rules
+!/debian/*dirs
+!/debian/*install
+!/debian/*config
+!/debian/*postrm
+!/debian/*prerm
+!/debian/*templates
+!/debian/*service
+!/debian/*preinst
+!/debian/*postinst
+
+# IDE files
+.vscode

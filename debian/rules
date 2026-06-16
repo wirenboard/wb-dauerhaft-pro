@@ -1,0 +1,12 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+
+# Uncomment this to turn on verbose mode
+export DH_VERBOSE=1
+
+# Use gzip compression for compatibility with older dpkg on controllers
+override_dh_builddeb:
+	dh_builddeb -- -Zgzip
+
+%:
+	dh $@
