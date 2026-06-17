@@ -1,1 +1,1 @@
-src/*.js usr/share/wb-rules-system/rules/
+src/*.js /etc/wb-rules
