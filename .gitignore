@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+.coverage
+build/
+debian/.debhelper/
+debian/wb-mqtt-dauerhaft-pro/
+debian/files
+debian/*.debhelper
+debian/*.substvars

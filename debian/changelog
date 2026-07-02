@@ -1,0 +1,9 @@
+wb-mqtt-dauerhaft-pro (1.0.0) stable; urgency=medium
+
+  * Initial release: Wiren Board MQTT driver for Dauerhaft PRO RS-485 blind and
+    shutter actuators, written in Python. Talks to the actuators through
+    wb-mqtt-serial's port/Load RPC (so they share the RS-485 bus with regular
+    Modbus devices), publishes each actuator as an MQTT device following the WB
+    conventions, and is configured via wb-mqtt-confed.
+
+ -- Ilya Tikhonyuk <ilya.tikhonyuk@wirenboard.com>  Thu, 02 Jul 2026 12:00:00 +0500

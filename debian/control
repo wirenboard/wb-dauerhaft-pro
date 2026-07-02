@@ -1,0 +1,25 @@
+Source: wb-mqtt-dauerhaft-pro
+Maintainer: Wiren Board team <info@wirenboard.com>
+Section: misc
+Priority: optional
+Standards-Version: 4.5.1
+Build-Depends: debhelper-compat (= 13),
+               dh-sequence-python3,
+               python3-all,
+               python3-jsonschema,
+               python3-mqttrpc,
+               python3-pytest
+Homepage: https://github.com/wirenboard/wb-dauerhaft-pro
+
+Package: wb-mqtt-dauerhaft-pro
+Architecture: all
+Depends: ${python3:Depends},
+         ${misc:Depends},
+         python3-jsonschema,
+         python3-mqttrpc,
+         python3-paho-mqtt
+Description: MQTT driver for Dauerhaft PRO RS-485 actuators
+ This package provides a Wiren Board MQTT driver for Dauerhaft PRO RS-485 blind
+ and shutter actuators. It drives the actuators over the RS-485 bus through
+ wb-mqtt-serial's port/Load RPC, exposes each one as an MQTT device, and is
+ configured via wb-mqtt-confed.
