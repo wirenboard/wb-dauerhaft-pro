@@ -20,6 +20,10 @@ CONFIG_PATH = "/etc/wb-mqtt-dauerhaft-pro.conf"
 SCHEMA_PATH = "/usr/share/wb-mqtt-confed/schemas/wb-mqtt-dauerhaft-pro.schema.json"
 
 
+class ConfigError(Exception):
+    """The config file is missing, unreadable or invalid."""
+
+
 @dataclass
 class Config:
     debug: bool = False
@@ -27,25 +31,36 @@ class Config:
     devices: List[ActuatorConfig] = field(default_factory=list)
 
 
-def _build_entry(raw: dict) -> ActuatorConfig:
-    port = PortConfig(
-        path=raw["port"],
-        baud_rate=int(raw.get("baud_rate", 9600)),
-        parity=raw.get("parity", "N"),
-        data_bits=int(raw.get("data_bits", 8)),
-        stop_bits=int(raw.get("stop_bits", 1)),
-    )
-    return ActuatorConfig(
-        mqtt_id=raw["mqtt_id"],
-        title=raw["title"],
-        address=int(raw["address"]),
-        port=port,
-    )
+def _build_entry(raw: dict, index: int) -> ActuatorConfig:
+    try:
+        port = PortConfig(
+            path=raw["port"],
+            baud_rate=int(raw.get("baud_rate", 9600)),
+            parity=raw.get("parity", "N"),
+            data_bits=int(raw.get("data_bits", 8)),
+            stop_bits=int(raw.get("stop_bits", 1)),
+        )
+        return ActuatorConfig(
+            mqtt_id=raw["mqtt_id"],
+            title=raw["title"],
+            address=int(raw["address"]),
+            port=port,
+        )
+    except KeyError as err:
+        raise ConfigError(f"device #{index}: missing required field {err}") from err
+    except (TypeError, ValueError) as err:
+        raise ConfigError(f"device #{index}: invalid field value: {err}") from err
 
 
 def load_config(path: str = CONFIG_PATH, schema_path: str = SCHEMA_PATH) -> Config:
-    with open(path, "r", encoding="utf-8") as fh:
-        raw = json.load(fh)
+    """Load and parse the config. Raises :class:`ConfigError` on any problem."""
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            raw = json.load(fh)
+    except OSError as err:
+        raise ConfigError(f"cannot read {path}: {err}") from err
+    except json.JSONDecodeError as err:
+        raise ConfigError(f"{path} is not valid JSON: {err}") from err
 
     try:
         import jsonschema  # optional; validate only if available and schema present
@@ -56,8 +71,13 @@ def load_config(path: str = CONFIG_PATH, schema_path: str = SCHEMA_PATH) -> Conf
         logger.debug("schema not found at %s, skipping validation", schema_path)
     except ImportError:
         logger.debug("jsonschema not installed, skipping validation")
+    except jsonschema.ValidationError as err:
+        raise ConfigError(f"{path} failed schema validation: {err.message}") from err
 
-    devices = [_build_entry(d) for d in raw.get("devices", [])]
+    if not isinstance(raw, dict):
+        raise ConfigError(f"{path}: top level must be a JSON object")
+
+    devices = [_build_entry(d, i) for i, d in enumerate(raw.get("devices", []))]
     if not devices:
         logger.warning("no devices configured in %s", path)
     return Config(

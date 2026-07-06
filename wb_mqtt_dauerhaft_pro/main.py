@@ -101,11 +101,17 @@ def main():
     parser.add_argument("-d", "--debug", action="store_true")
     args = parser.parse_args()
 
-    conf = cfgmod.load_config(args.config)
     logging.basicConfig(
-        level=logging.DEBUG if (args.debug or conf.debug) else logging.INFO,
+        level=logging.DEBUG if args.debug else logging.INFO,
         format="%(levelname)s: %(message)s",
     )
+    try:
+        conf = cfgmod.load_config(args.config)
+    except cfgmod.ConfigError as err:
+        logger.error("config error: %s", err)
+        return 1
+    if conf.debug and not args.debug:
+        logging.getLogger().setLevel(logging.DEBUG)
 
     client = make_client(DRIVER_NAME)
     client.connect(args.broker, args.broker_port)
