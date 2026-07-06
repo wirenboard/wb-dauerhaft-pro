@@ -1,0 +1,14 @@
+[Unit]
+Description=Wiren Board MQTT driver for Dauerhaft PRO RS-485 actuators
+After=mosquitto.service wb-mqtt-serial.service
+Wants=wb-mqtt-serial.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/wb-mqtt-dauerhaft-pro
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

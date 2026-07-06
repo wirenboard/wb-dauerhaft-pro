@@ -1,0 +1,91 @@
+{
+    "$schema": "http://json-schema.org/draft-04/schema#",
+    "type": "object",
+    "title": "Dauerhaft PRO RS-485 driver",
+    "description": "Управление приводами штор Dauerhaft PRO по RS-485 (MVP: вверх/вниз/стоп, смена адреса)",
+    "configFile": {
+        "path": "/etc/wb-mqtt-dauerhaft-pro.conf",
+        "service": "wb-mqtt-dauerhaft-pro"
+    },
+    "definitions": {
+        "device": {
+            "type": "object",
+            "title": "Привод",
+            "headerTemplate": "{{self.title}}",
+            "properties": {
+                "mqtt_id": {
+                    "type": "string",
+                    "title": "MQTT id устройства",
+                    "pattern": "^[^$#+/]+$",
+                    "minLength": 1,
+                    "propertyOrder": 1,
+                    "options": {"patternmessage": "Недопустимый id"}
+                },
+                "title": {
+                    "type": "string",
+                    "title": "Название",
+                    "minLength": 1,
+                    "propertyOrder": 2
+                },
+                "address": {
+                    "type": "integer",
+                    "title": "Modbus-адрес привода",
+                    "minimum": 0,
+                    "maximum": 255,
+                    "propertyOrder": 3
+                },
+                "port": {
+                    "type": "string",
+                    "title": "Порт RS-485",
+                    "default": "/dev/ttyRS485-2",
+                    "propertyOrder": 4
+                },
+                "baud_rate": {
+                    "type": "integer",
+                    "title": "Скорость, бод",
+                    "default": 9600,
+                    "propertyOrder": 5
+                },
+                "parity": {
+                    "type": "string",
+                    "title": "Чётность",
+                    "enum": ["N", "E", "O"],
+                    "default": "N",
+                    "propertyOrder": 6
+                },
+                "stop_bits": {
+                    "type": "integer",
+                    "title": "Стоп-биты",
+                    "enum": [1, 2],
+                    "default": 1,
+                    "propertyOrder": 7
+                }
+            },
+            "required": ["mqtt_id", "title", "address", "port"],
+            "options": {"disable_collapse": false}
+        }
+    },
+    "properties": {
+        "debug": {
+            "type": "boolean",
+            "title": "Отладочный лог",
+            "default": false,
+            "propertyOrder": 1
+        },
+        "liveness_interval_s": {
+            "type": "number",
+            "title": "Интервал проверки связи, с",
+            "default": 5.0,
+            "minimum": 1.0,
+            "propertyOrder": 2
+        },
+        "devices": {
+            "type": "array",
+            "title": "Приводы",
+            "items": {"$ref": "#/definitions/device"},
+            "propertyOrder": 3,
+            "options": {"disable_array_reorder": true}
+        }
+    },
+    "required": ["devices"]
+}

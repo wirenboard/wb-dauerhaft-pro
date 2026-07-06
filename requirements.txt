@@ -1,0 +1,6 @@
+# Runtime dependencies. On a Wiren Board controller these are provided by the
+# Debian packages listed in debian/control (python3-paho-mqtt, python3-mqttrpc);
+# the pins below match the versions shipped on the stand (Python 3.9, paho 1.5.x)
+# for local development.
+paho-mqtt>=1.5,<2
+mqttrpc @ git+https://github.com/wirenboard/python-mqtt-rpc@main
