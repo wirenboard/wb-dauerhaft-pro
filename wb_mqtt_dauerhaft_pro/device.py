@@ -76,6 +76,7 @@ class Actuator:
 
         resp = self._exchange(
             protocol.set_address(self.cfg.address, new_address),
+            response_timeout_ms=ADDRESS_TIMEOUT_MS,
             total_timeout_ms=ADDRESS_TIMEOUT_MS,
         )
         if isinstance(resp, protocol.SetAddressResponse) and resp.ok:
@@ -101,10 +102,16 @@ class Actuator:
     # ------------------------------------------------------------------ #
     # internals
     # ------------------------------------------------------------------ #
-    def _exchange(self, request: bytes, total_timeout_ms=None):
+    def _exchange(self, request: bytes, response_timeout_ms=None, total_timeout_ms=None):
         """Send *request*, decode the reply, update ``online``; return response or None."""
         try:
-            reply = self._t.transceive(self.cfg.port, request, RESP_SIZE, total_timeout_ms=total_timeout_ms)
+            reply = self._t.transceive(
+                self.cfg.port,
+                request,
+                RESP_SIZE,
+                response_timeout_ms=response_timeout_ms,
+                total_timeout_ms=total_timeout_ms,
+            )
         except DeviceTimeout:
             self.online = False
             return None

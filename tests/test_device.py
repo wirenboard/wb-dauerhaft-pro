@@ -11,12 +11,12 @@ class FakeTransport:
     """Records requests and returns canned, CRC-valid replies."""
 
     def __init__(self, reply_for=None, raise_timeout=False):
-        self.calls = []  # list of (request_bytes, response_size, total_timeout_ms)
+        self.calls = []  # list of (request, response_size, response_timeout_ms, total_timeout_ms)
         self._reply_for = reply_for or self._default_reply
         self._raise_timeout = raise_timeout
 
-    def transceive(self, port, request, response_size, *, total_timeout_ms=None):
-        self.calls.append((request, response_size, total_timeout_ms))
+    def transceive(self, port, request, response_size, *, response_timeout_ms=None, total_timeout_ms=None):
+        self.calls.append((request, response_size, response_timeout_ms, total_timeout_ms))
         if self._raise_timeout:
             raise DeviceTimeout("fake timeout")
         return self._reply_for(request)
@@ -83,7 +83,9 @@ def test_set_address_success_follows_new_address():
 def test_set_address_uses_long_timeout():
     act, t = make_actuator()
     act.set_address(0x5E)
-    assert t.calls[0][2] == ADDRESS_TIMEOUT_MS
+    # both the per-reply (response) and overall (total) budgets are raised
+    assert t.calls[0][2] == ADDRESS_TIMEOUT_MS  # response_timeout_ms
+    assert t.calls[0][3] == ADDRESS_TIMEOUT_MS  # total_timeout_ms
 
 
 def test_set_address_refuses_broadcast():

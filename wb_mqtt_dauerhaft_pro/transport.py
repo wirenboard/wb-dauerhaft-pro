@@ -10,8 +10,15 @@ RPC contract (verified against wb-mqtt-serial and the reference tools
 
     call("wb-mqtt-serial", "port", "Load", params, timeout_s)
     params = {path, baud_rate, parity, data_bits, stop_bits,
-              format="HEX", msg=<hex>, response_size, total_timeout}
+              format="HEX", msg=<hex>, response_size,
+              response_timeout, total_timeout}
     -> {"response": "<hex reply>"}
+
+``response_timeout`` is what actually bounds the wait for the device's first
+reply byte (wb-mqtt-serial default 500 ms); ``total_timeout`` only caps the whole
+RPC task (which otherwise retries the exchange). Slow operations that write the
+actuator's flash (set-address) must raise ``response_timeout``, not just
+``total_timeout``, or the read gives up after 500 ms.
 
 A bus/device timeout is reported by wb-mqtt-serial as an RPC error (code -32000,
 "... request timed out"); a total absence of an RPC reply raises TimeoutError.
@@ -31,8 +38,10 @@ from typing import Optional
 DEFAULT_BROKER_HOST = "127.0.0.1"
 DEFAULT_BROKER_PORT = 1883
 
-# Single request/response budget. Reads/motion answer in well under this; the
-# address change writes flash and is given a longer budget by the caller.
+# Per-exchange budgets. response_timeout bounds the wait for the device's reply
+# (reads/motion answer well within 500 ms); total_timeout caps the whole RPC task.
+# Flash-writing operations (set-address) override both with a longer value.
+DEFAULT_RESPONSE_TIMEOUT_MS = 500
 DEFAULT_TOTAL_TIMEOUT_MS = 500
 
 
@@ -62,8 +71,15 @@ class SerialTransport:
     unit-test with a fake. Use :func:`connect` for a ready-to-go instance.
     """
 
-    def __init__(self, rpc_client, *, default_total_timeout_ms: int = DEFAULT_TOTAL_TIMEOUT_MS):
+    def __init__(
+        self,
+        rpc_client,
+        *,
+        default_response_timeout_ms: int = DEFAULT_RESPONSE_TIMEOUT_MS,
+        default_total_timeout_ms: int = DEFAULT_TOTAL_TIMEOUT_MS,
+    ):
         self._rpc = rpc_client
+        self._default_response_timeout_ms = default_response_timeout_ms
         self._default_total_timeout_ms = default_total_timeout_ms
 
     def transceive(
@@ -72,6 +88,7 @@ class SerialTransport:
         request: bytes,
         response_size: int,
         *,
+        response_timeout_ms: Optional[int] = None,
         total_timeout_ms: Optional[int] = None,
     ) -> bytes:
         """Send *request* on *port*, wait for *response_size* bytes, return the reply.
@@ -79,6 +96,9 @@ class SerialTransport:
         Raises :class:`DeviceTimeout` if the device does not answer and
         :class:`TransportError` for other RPC/bus errors.
         """
+        response = (
+            response_timeout_ms if response_timeout_ms is not None else self._default_response_timeout_ms
+        )
         total = total_timeout_ms if total_timeout_ms is not None else self._default_total_timeout_ms
         params = {
             "path": port.path,
@@ -89,13 +109,14 @@ class SerialTransport:
             "format": "HEX",
             "msg": request.hex(),
             "response_size": response_size,
+            "response_timeout": response,
             "total_timeout": total,
         }
 
         from mqttrpc import client as rpcclient  # lazy: only needed at call time
 
         # Give the RPC round-trip headroom beyond the device-side budget.
-        rpc_timeout_s = total / 1000.0 + 2.0
+        rpc_timeout_s = max(response, total) / 1000.0 + 2.0
         try:
             result = self._rpc.call("wb-mqtt-serial", "port", "Load", params, rpc_timeout_s)
         except rpcclient.TimeoutError as err:
