@@ -1,4 +1,4 @@
-wb-mqtt-dauerhaft-pro (1.0.0) stable; urgency=medium
+wb-dauerhaft-pro (1.0.0) stable; urgency=medium
 
   * Initial MVP release: Wiren Board MQTT driver for Dauerhaft PRO RS-485
     actuators, written in Python. Drives the actuators through wb-mqtt-serial's

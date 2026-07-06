@@ -26,7 +26,7 @@ Both are surfaced here as :class:`DeviceTimeout`.
 
 Works with the versions shipped on the controller across releases: paho-mqtt 1.x
 (Bullseye) and 2.x (Trixie), mqttrpc 1.3.x. The paho client is created via
-:func:`wb_mqtt_dauerhaft_pro.mqtt.make_client` to bridge the 1.x/2.x API gap.
+:func:`wb_dauerhaft_pro.mqtt.make_client` to bridge the 1.x/2.x API gap.
 """
 
 from dataclasses import dataclass

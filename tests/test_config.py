@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from wb_mqtt_dauerhaft_pro.config import ConfigError, load_config
+from wb_dauerhaft_pro.config import ConfigError, load_config
 
 NO_SCHEMA = "/nonexistent/schema.json"  # skips validation (file/ImportError handled)
 
@@ -17,7 +17,7 @@ def _write(tmp_path, text):
 
 def test_missing_file_raises_config_error():
     with pytest.raises(ConfigError):
-        load_config("/nonexistent/path/wb-mqtt-dauerhaft-pro.conf", NO_SCHEMA)
+        load_config("/nonexistent/path/wb-dauerhaft-pro.conf", NO_SCHEMA)
 
 
 def test_bad_json_raises_config_error(tmp_path):

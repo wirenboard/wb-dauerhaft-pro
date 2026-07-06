@@ -11,7 +11,7 @@ from mqttrpc.client import (  # noqa: A004 - provided by conftest
     TimeoutError,
 )
 
-from wb_mqtt_dauerhaft_pro.transport import (
+from wb_dauerhaft_pro.transport import (
     DeviceTimeout,
     PortConfig,
     SerialTransport,

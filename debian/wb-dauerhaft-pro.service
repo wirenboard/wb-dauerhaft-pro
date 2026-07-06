@@ -6,7 +6,7 @@ Wants=wb-mqtt-serial.service
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/bin/wb-mqtt-dauerhaft-pro
+ExecStart=/usr/bin/wb-dauerhaft-pro
 Restart=on-failure
 RestartSec=10
 # A bad config exits 78 (EX_CONFIG) — do not restart-loop on it; genuine

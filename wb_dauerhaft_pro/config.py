@@ -3,7 +3,7 @@
 The config file is plain JSON edited via wb-mqtt-confed (see the .schema.json).
 This module reads it, optionally validates against the schema if jsonschema is
 present, and turns each entry into an
-:class:`~wb_mqtt_dauerhaft_pro.device.ActuatorConfig`.
+:class:`~wb_dauerhaft_pro.device.ActuatorConfig`.
 """
 
 import json
@@ -16,8 +16,8 @@ from .transport import PortConfig
 
 logger = logging.getLogger(__name__)
 
-CONFIG_PATH = "/etc/wb-mqtt-dauerhaft-pro.conf"
-SCHEMA_PATH = "/usr/share/wb-mqtt-confed/schemas/wb-mqtt-dauerhaft-pro.schema.json"
+CONFIG_PATH = "/etc/wb-dauerhaft-pro.conf"
+SCHEMA_PATH = "/usr/share/wb-mqtt-confed/schemas/wb-dauerhaft-pro.schema.json"
 
 
 class ConfigError(Exception):

@@ -1,4 +1,4 @@
-"""wb-mqtt-dauerhaft-pro daemon (MVP).
+"""wb-dauerhaft-pro daemon (MVP).
 
 Single control loop. paho's network thread only *delivers* messages (RPC replies
 -> mqttrpc; control ``/on`` -> a command queue). One worker loop (the main thread)

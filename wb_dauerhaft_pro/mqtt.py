@@ -18,7 +18,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-DRIVER_NAME = "wb-mqtt-dauerhaft-pro"
+DRIVER_NAME = "wb-dauerhaft-pro"
 
 
 def make_client(client_id):

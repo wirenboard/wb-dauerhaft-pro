@@ -5,7 +5,7 @@ conftest stubs ``mqttrpc`` so main imports without the real package.
 
 import pytest
 
-from wb_mqtt_dauerhaft_pro import main
+from wb_dauerhaft_pro import main
 
 
 class FakeAct:

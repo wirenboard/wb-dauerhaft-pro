@@ -2,7 +2,7 @@
 
 import pytest
 
-from wb_mqtt_dauerhaft_pro import protocol as p
+from wb_dauerhaft_pro import protocol as p
 
 # --------------------------------------------------------------------------- #
 # CRC-16/Modbus

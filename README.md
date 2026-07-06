@@ -39,7 +39,7 @@ Each configured actuator becomes an MQTT device with these controls:
 
 ## Configuration
 
-Configured via **wb-mqtt-confed** (`/etc/wb-mqtt-dauerhaft-pro.conf`):
+Configured via **wb-mqtt-confed** (`/etc/wb-dauerhaft-pro.conf`):
 
 ```json
 {
@@ -66,7 +66,7 @@ Standard Debian package build (see the WB debianisation guide):
 ```sh
 sudo apt update && sudo apt install git dpkg-dev debhelper dh-python python3-all python3-pytest
 dpkg-buildpackage -rfakeroot -us -uc
-sudo apt install ../wb-mqtt-dauerhaft-pro_*.deb
+sudo apt install ../wb-dauerhaft-pro_*.deb
 ```
 
 On the Wiren Board build server the package is built by Jenkins (`Jenkinsfile`,

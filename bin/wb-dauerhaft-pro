@@ -3,7 +3,7 @@
 
 import sys
 
-from wb_mqtt_dauerhaft_pro.main import main
+from wb_dauerhaft_pro.main import main
 
 try:
     sys.exit(main())

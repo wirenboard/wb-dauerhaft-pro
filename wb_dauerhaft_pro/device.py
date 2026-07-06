@@ -1,7 +1,7 @@
 """Actuator model: maps the MVP actions to protocol frames and tracks liveness.
 
 One :class:`Actuator` per physical device. It owns no MQTT and no I/O loop; it
-uses an injected transport (:class:`~wb_mqtt_dauerhaft_pro.transport.SerialTransport`
+uses an injected transport (:class:`~wb_dauerhaft_pro.transport.SerialTransport`
 or a test fake) to talk to the device.
 
 MVP scope — nothing else:

@@ -1,0 +1,4 @@
+bin/wb-dauerhaft-pro /usr/bin
+wb-dauerhaft-pro.schema.json /usr/share/wb-mqtt-confed/schemas
+wb-dauerhaft-pro.conf /etc
+10wb-dauerhaft-pro /etc/wb-configs.d

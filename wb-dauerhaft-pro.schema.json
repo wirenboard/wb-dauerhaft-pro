@@ -4,8 +4,8 @@
     "title": "Dauerhaft PRO RS-485 driver",
     "description": "Управление приводами штор Dauerhaft PRO по RS-485 (MVP: вверх/вниз/стоп, смена адреса)",
     "configFile": {
-        "path": "/etc/wb-mqtt-dauerhaft-pro.conf",
-        "service": "wb-mqtt-dauerhaft-pro"
+        "path": "/etc/wb-dauerhaft-pro.conf",
+        "service": "wb-dauerhaft-pro"
     },
     "definitions": {
         "device": {

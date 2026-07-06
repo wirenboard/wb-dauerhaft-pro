@@ -2,7 +2,7 @@
 
 import json
 
-from wb_mqtt_dauerhaft_pro.mqtt import DRIVER_NAME, WbDevice
+from wb_dauerhaft_pro.mqtt import DRIVER_NAME, WbDevice
 
 
 class FakeClient:
