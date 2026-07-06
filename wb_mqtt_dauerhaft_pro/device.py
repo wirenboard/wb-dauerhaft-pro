@@ -28,6 +28,11 @@ RESP_SIZE = 7
 # move; the vendor driver allows several seconds for such operations.
 ADDRESS_TIMEOUT_MS = 5000
 
+# Mark a device offline only after this many consecutive missed exchanges, so a
+# single transient RS-485 glitch — e.g. a collision with a chatty device's active
+# report on a shared bus — does not flap the availability indicator.
+OFFLINE_AFTER_MISSES = 3
+
 
 @dataclass
 class ActuatorConfig:
@@ -44,6 +49,7 @@ class Actuator:
         self.cfg = config
         self._t = transport
         self.online = False
+        self._miss_count = 0
 
     # ------------------------------------------------------------------ #
     # motion
@@ -123,22 +129,23 @@ class Actuator:
                 total_timeout_ms=total_timeout_ms,
             )
         except DeviceTimeout:
-            self.online = False
+            self._register_miss()
             return None
         except TransportError as exc:
             logger.warning("%s: transport error: %s", self.cfg.mqtt_id, exc)
-            self.online = False
+            self._register_miss()
             return None
         try:
             frame = protocol.parse_frame(reply)
         except protocol.ProtocolError as exc:
             logger.warning("%s: bad frame %s: %s", self.cfg.mqtt_id, reply.hex(), exc)
-            self.online = False
+            self._register_miss()
             return None
         # On a shared bus the reply must come from the addressed device and answer
         # the request we sent (or be an error report). A mismatched frame — a
         # stray/delayed reply from another device or an unsolicited active report
-        # (0x08) — is not our answer, so ignore it without touching online.
+        # (0x08) — is not our answer, so count it as a miss (subject to hysteresis)
+        # rather than trusting it.
         if frame.address != expect_address or frame.function not in (request_func, protocol.Function.ERROR):
             logger.debug(
                 "%s: ignoring unexpected frame %s (addr 0x%02X func 0x%02X)",
@@ -147,11 +154,19 @@ class Actuator:
                 frame.address,
                 frame.function,
             )
+            self._register_miss()
             return None
         resp = protocol.decode_response(frame)
         # The device answered (so it is online), but an error frame means it
         # rejected the command — surface it instead of silently ignoring it.
         if isinstance(resp, protocol.ErrorResponse):
             logger.warning("%s: device error response, code 0x%02X", self.cfg.mqtt_id, resp.code)
+        self._miss_count = 0
         self.online = True
         return resp
+
+    def _register_miss(self):
+        """Count a missed exchange; go offline only after OFFLINE_AFTER_MISSES in a row."""
+        self._miss_count += 1
+        if self._miss_count >= OFFLINE_AFTER_MISSES:
+            self.online = False

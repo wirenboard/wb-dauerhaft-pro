@@ -60,10 +60,28 @@ def test_stop_sends_stop():
     assert t.calls[0][0] == p.control_stop(0x5F)
 
 
-def test_timeout_marks_offline():
-    act, t = make_actuator(raise_timeout=True)
-    act.up()
+def test_offline_only_after_consecutive_misses():
+    act, t = make_actuator()
+    act.ping()  # a good reply first -> online
+    assert act.online is True
+    t._raise_timeout = True
+    act.ping()
+    assert act.online is True  # miss 1 -> still online (hysteresis)
+    act.ping()
+    assert act.online is True  # miss 2 -> still online
+    act.ping()
+    assert act.online is False  # miss 3 -> offline
+
+
+def test_recovers_online_after_a_good_reply():
+    act, t = make_actuator()
+    t._raise_timeout = True
+    for _ in range(3):
+        act.ping()
     assert act.online is False
+    t._raise_timeout = False
+    act.ping()
+    assert act.online is True  # one good reply clears the miss streak
 
 
 def test_ping_updates_online():
