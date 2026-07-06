@@ -124,21 +124,21 @@ def test_error_response_is_logged_but_stays_online(caplog):
     assert any("device error response" in r.getMessage() for r in caplog.records)
 
 
-def test_reply_from_wrong_address_is_ignored():
-    def reply(_request):
-        # a frame from a different device on the shared bus
-        return p.build_frame(0x99, p.Function.CONTROL, bytes([p.ControlSub.MOVE, 0x64]))
-
-    act, _ = make_actuator(reply_for=reply)
+def test_stray_frame_from_other_device_does_not_flip_online_offline():
+    act, t = make_actuator()
+    act.ping()  # a valid reply first -> online
+    assert act.online is True
+    # now a frame from a DIFFERENT device on the shared bus arrives as the reply
+    t._reply_for = lambda _req: p.build_frame(0x99, p.Function.CONTROL, bytes([p.ControlSub.MOVE, 0x64]))
     act.up()
-    assert act.online is False  # a stray frame is not our answer
+    assert act.online is True  # a stray frame is not our answer and must NOT offline us
 
 
-def test_active_report_frame_is_ignored():
-    def reply(_request):
-        # unsolicited movement report (0x08) arriving instead of our command's reply
-        return p.build_frame(0x5F, p.Function.ACTIVE_REPORT, bytes([0x32, 0x01]))
-
-    act, _ = make_actuator(reply_for=reply)
+def test_active_report_does_not_flip_online_offline():
+    act, t = make_actuator()
+    act.ping()
+    assert act.online is True
+    # an unsolicited movement report (0x08) arrives instead of our command's reply
+    t._reply_for = lambda _req: p.build_frame(0x5F, p.Function.ACTIVE_REPORT, bytes([0x23, 0x00]))
     act.up()
-    assert act.online is False  # wrong function -> not our answer
+    assert act.online is True  # wrong function -> not our answer, must NOT offline us

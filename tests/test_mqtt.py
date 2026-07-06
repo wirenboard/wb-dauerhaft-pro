@@ -10,11 +10,11 @@ class FakeClient:
 
     def __init__(self):
         self.published = {}  # topic -> last value
-        self.publish_log = []  # [(topic, value), ...]
+        self.publish_log = []  # [(topic, value, retain), ...]
         self.subscribed = []
 
     def publish(self, topic, value, retain=False):
-        self.publish_log.append((topic, value))
+        self.publish_log.append((topic, value, retain))
         self.published[topic] = value
 
     def subscribe(self, topic):
@@ -55,9 +55,18 @@ def test_unchanged_retained_value_is_not_republished():
     topic = "/devices/dev1/meta/error"
     dev.set_error("r")
     dev.set_error("r")  # unchanged -> skipped
-    assert [t for t, _ in c.publish_log].count(topic) == 1
+    assert [e[0] for e in c.publish_log].count(topic) == 1
     dev.set_error("")  # changed -> published
-    assert [t for t, _ in c.publish_log].count(topic) == 2
+    assert [e[0] for e in c.publish_log].count(topic) == 2
+
+
+def test_all_publishes_are_retained():
+    c = FakeClient()
+    dev = WbDevice(c, "dev1", "X")
+    dev.add_control("address", "text", 1, readonly=True, initial="0x5F")
+    dev.set_error("r")
+    assert c.publish_log, "expected some publishes"
+    assert all(retain is True for _t, _v, retain in c.publish_log)
 
 
 def test_command_topic_is_subscribed_and_resubscribable():

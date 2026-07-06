@@ -154,3 +154,37 @@ def test_decode_unknown_function_raises():
     raw = p.build_frame(0x5F, 0x42, bytes([0x00]))
     with pytest.raises(p.ProtocolError):
         p.parse_response(raw)
+
+
+# --------------------------------------------------------------------------- #
+# real frames captured on the test stand (lock the codec to the vendor wire)
+# --------------------------------------------------------------------------- #
+
+CAPTURED_FRAMES = [
+    "5f010102c3a1",  # query-address request to 0x5F
+    "5f0102015f5199",  # query-address reply from 0x5F
+    "0b0102010b61aa",  # query-address reply from 0x0B
+    "5f040201fc112c",  # move-up echo from 0x5F
+    "5f040202fc11dc",  # stop echo from 0x5F
+    "0b080223003b51",  # unsolicited active report (0x08) from 0x0B
+    "5e10025e0a90aa",  # set-address ack from the NEW address 0x5E
+]
+
+
+@pytest.mark.parametrize("hexframe", CAPTURED_FRAMES)
+def test_captured_frames_pass_crc_and_length(hexframe):
+    frame = p.parse_frame(bytes.fromhex(hexframe))  # raises on a bad CRC / length
+    assert frame.address == int(hexframe[:2], 16)
+
+
+def test_decode_captured_active_report_from_0x0b():
+    resp = p.parse_response(bytes.fromhex("0b080223003b51"))
+    assert isinstance(resp, p.ActiveReport)
+    assert resp.data == bytes([0x23, 0x00])
+
+
+def test_decode_captured_set_address_ack():
+    resp = p.parse_response(bytes.fromhex("5e10025e0a90aa"))
+    assert isinstance(resp, p.SetAddressResponse)
+    assert resp.address == 0x5E
+    assert resp.ok is True
