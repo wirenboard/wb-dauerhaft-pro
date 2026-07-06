@@ -105,8 +105,13 @@ class SerialTransport:
                 raise DeviceTimeout(str(err.data)) from err
             raise TransportError(f"port/Load error [{err.code}]: {err.data}") from err
 
-        response_hex = (result or {}).get("response", "")
-        return bytes.fromhex(response_hex)
+        try:
+            response_hex = (result or {}).get("response", "")
+            return bytes.fromhex(response_hex)
+        except (AttributeError, TypeError, ValueError) as err:
+            # A malformed RPC result (non-dict, or an odd-length / non-hex string)
+            # must not crash the daemon — surface it as a transport error instead.
+            raise TransportError(f"bad port/Load response: {result!r}") from err
 
 
 @contextlib.contextmanager
