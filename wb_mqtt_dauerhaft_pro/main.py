@@ -7,8 +7,9 @@ for liveness, calling the transport synchronously. This serializes bus access an
 avoids deadlocking the network thread (a command callback must never call
 transceive itself — the reply is delivered on that same thread).
 
-Controls per device: Up / Down / Stop, a "set address" field, plus read-only
-Online and Address indicators. That is the whole MVP surface.
+Controls per device: Up / Down / Stop, a "set address" field and a read-only
+Address indicator; availability is published via the conventional /meta/error
+topic. That is the whole MVP surface.
 """
 
 import argparse
@@ -27,12 +28,10 @@ from .transport import SerialTransport
 
 logger = logging.getLogger(__name__)
 
-
-def _int(value, default=0):
-    try:
-        return int(float(value))
-    except (ValueError, TypeError):
-        return default
+# Exit code for a bad config (EX_CONFIG from sysexits.h). The systemd unit sets
+# RestartPreventExitStatus to this, so a broken config does not restart-loop
+# while genuine transient crashes (exit 1) still restart.
+EXIT_CONFIG_ERROR = 78
 
 
 def build_controls(dev: WbDevice, act: Actuator, enqueue):
@@ -40,7 +39,7 @@ def build_controls(dev: WbDevice, act: Actuator, enqueue):
 
     def cmd(action):
         def _cb(_client, _userdata, msg):
-            enqueue(act, action, msg.payload.decode("utf-8", "replace"))
+            enqueue(dev, act, action, msg.payload.decode("utf-8", "replace"))
 
         return _cb
 
@@ -82,7 +81,9 @@ def dispatch(act: Actuator, action: str, value: str):
     elif action == "stop":
         act.stop()
     elif action == "set_address":
-        act.set_address(_int(value))
+        # int() raises ValueError on a non-numeric payload, which drain_commands
+        # logs — better than silently coercing garbage to 0.
+        act.set_address(int(value))
     else:
         logger.warning("unknown action %s", action)
 
@@ -114,7 +115,7 @@ def main():
         conf = cfgmod.load_config(args.config)
     except cfgmod.ConfigError as err:
         logger.error("config error: %s", err)
-        return 1
+        return EXIT_CONFIG_ERROR
     if conf.debug and not args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
 
@@ -134,18 +135,16 @@ def main():
 
     cmd_q = queue.Queue()
 
-    def enqueue(act, action, value):
-        cmd_q.put((act, action, value))
+    def enqueue(dev, act, action, value):
+        cmd_q.put((dev, act, action, value))
 
-    entries = []  # [WbDevice, Actuator]
-    dev_by_act = {}
+    entries = []  # [(WbDevice, Actuator)]
     for de in conf.devices:
         act = Actuator(de, transport)
         dev = WbDevice(client, de.mqtt_id, de.title)
         build_controls(dev, act, enqueue)
         dev.set_error("r")  # start unavailable until the first successful poll clears it
         entries.append((dev, act))
-        dev_by_act[id(act)] = dev
         logger.info("configured %s (addr 0x%02X) on %s", de.mqtt_id, de.address, de.port.path)
 
     def _on_connect(_client, _userdata, _flags, _rc):
@@ -163,7 +162,7 @@ def main():
     def drain_commands():
         while True:
             try:
-                act, action, value = cmd_q.get_nowait()
+                dev, act, action, value = cmd_q.get_nowait()
             except queue.Empty:
                 return
             logger.debug("command: %s = %r", action, value)
@@ -171,7 +170,7 @@ def main():
                 dispatch(act, action, value)
             except Exception as exc:  # pylint: disable=broad-except
                 logger.warning("command %s failed: %s", action, exc)
-            publish_state(dev_by_act[id(act)], act)
+            publish_state(dev, act)
 
     stop = threading.Event()
 
@@ -190,8 +189,14 @@ def main():
             now = time.monotonic()
             if now >= next_ping:
                 for dev, act in entries:
-                    act.ping()
-                    publish_state(dev, act)
+                    # A single device's poll must never take down the loop: an
+                    # unexpected error from paho/mqttrpc outside the transport's
+                    # handled classes would otherwise kill the daemon.
+                    try:
+                        act.ping()
+                        publish_state(dev, act)
+                    except Exception as exc:  # pylint: disable=broad-except
+                        logger.warning("poll of %s failed: %s", dev.id, exc)
                     drain_commands()  # keep commands responsive between pings
                 next_ping = time.monotonic() + conf.liveness_interval_s
             stop.wait(0.05)

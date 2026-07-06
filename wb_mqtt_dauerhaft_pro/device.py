@@ -19,7 +19,9 @@ from .transport import DeviceTimeout, PortConfig, TransportError
 logger = logging.getLogger(__name__)
 
 # A reply is addr+func+len + up to 2 data bytes + 2 CRC = 7 bytes for every MVP
-# command (move/stop echo, address query, set-address ack).
+# command (move/stop echo, address query, set-address ack). This is exact only
+# because the MVP has no variable-length replies; a firmware-version query (3
+# data bytes) or similar would need its own size, derived from the request.
 RESP_SIZE = 7
 
 # Changing the address writes the device's flash and answers slower than a plain
@@ -76,6 +78,7 @@ class Actuator:
 
         resp = self._exchange(
             protocol.set_address(self.cfg.address, new_address),
+            expect_address=new_address,  # spec 3.1: the ack comes FROM the new address
             response_timeout_ms=ADDRESS_TIMEOUT_MS,
             total_timeout_ms=ADDRESS_TIMEOUT_MS,
         )
@@ -102,8 +105,15 @@ class Actuator:
     # ------------------------------------------------------------------ #
     # internals
     # ------------------------------------------------------------------ #
-    def _exchange(self, request: bytes, response_timeout_ms=None, total_timeout_ms=None):
-        """Send *request*, decode the reply, update ``online``; return response or None."""
+    def _exchange(self, request: bytes, expect_address=None, response_timeout_ms=None, total_timeout_ms=None):
+        """Send *request*, validate and decode the reply, update ``online``.
+
+        Returns the decoded response, or None on timeout / transport error / a
+        frame that does not match the request (a stray or delayed frame from
+        another device, or an unsolicited active report, on the shared bus).
+        """
+        expect_address = self.cfg.address if expect_address is None else expect_address
+        request_func = request[1]
         try:
             reply = self._t.transceive(
                 self.cfg.port,
@@ -120,11 +130,25 @@ class Actuator:
             self.online = False
             return None
         try:
-            resp = protocol.decode_response(protocol.parse_frame(reply))
+            frame = protocol.parse_frame(reply)
         except protocol.ProtocolError as exc:
             logger.warning("%s: bad frame %s: %s", self.cfg.mqtt_id, reply.hex(), exc)
             self.online = False
             return None
+        # On a shared bus the reply must come from the addressed device and answer
+        # the request we sent (or be an error report). A mismatched frame — a
+        # stray/delayed reply from another device or an unsolicited active report
+        # (0x08) — is not our answer, so ignore it without touching online.
+        if frame.address != expect_address or frame.function not in (request_func, protocol.Function.ERROR):
+            logger.debug(
+                "%s: ignoring unexpected frame %s (addr 0x%02X func 0x%02X)",
+                self.cfg.mqtt_id,
+                reply.hex(),
+                frame.address,
+                frame.function,
+            )
+            return None
+        resp = protocol.decode_response(frame)
         # The device answered (so it is online), but an error frame means it
         # rejected the command — surface it instead of silently ignoring it.
         if isinstance(resp, protocol.ErrorResponse):

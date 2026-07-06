@@ -143,6 +143,13 @@ def test_decode_error_response():
     assert resp.code == 0x03
 
 
+def test_decode_active_report():
+    raw = p.build_frame(0x5F, p.Function.ACTIVE_REPORT, bytes([0x32, 0x01]))
+    resp = p.parse_response(raw)
+    assert isinstance(resp, p.ActiveReport)
+    assert resp.data == bytes([0x32, 0x01])
+
+
 def test_decode_unknown_function_raises():
     raw = p.build_frame(0x5F, 0x42, bytes([0x00]))
     with pytest.raises(p.ProtocolError):

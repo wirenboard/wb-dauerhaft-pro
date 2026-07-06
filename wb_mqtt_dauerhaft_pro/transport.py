@@ -42,11 +42,13 @@ from typing import Optional
 DEFAULT_RESPONSE_TIMEOUT_MS = 500
 DEFAULT_TOTAL_TIMEOUT_MS = 500
 
-# JSON-RPC error codes wb-mqtt-serial uses when a device does not answer in time.
-# The exact code varies by version — a serial read timeout comes as -32000, an
-# RPC task timeout / queue expiry as -32100 or -32600 — so match on the set plus
-# the message text rather than a single code.
-_TIMEOUT_CODES = (-32000, -32100, -32600)
+# wb-mqtt-serial error codes. E_RPC_REQUEST_TIMEOUT is version-dependent (-32100
+# in libwbmqtt, -32600 in newer tooling) and always means "no answer in time".
+# E_RPC_SERVER_ERROR (-32000) is GENERIC ("Port IO error: ..."): only a serial
+# read timeout ("... request timed out") means the device stayed silent — other
+# Port IO errors (wrong path, busy port) are real faults worth a transport error.
+E_RPC_SERVER_ERROR = -32000
+RPC_TIMEOUT_CODES = (-32100, -32600)
 
 
 class TransportError(Exception):
@@ -128,7 +130,10 @@ class SerialTransport:
         except rpcclient.MQTTRPCError as err:
             msg = str(err.data or "")
             lowered = msg.lower()
-            if err.code in _TIMEOUT_CODES or "timed out" in lowered or "timeout" in lowered:
+            is_timeout = err.code in RPC_TIMEOUT_CODES or (
+                err.code == E_RPC_SERVER_ERROR and ("timed out" in lowered or "timeout" in lowered)
+            )
+            if is_timeout:
                 raise DeviceTimeout(msg or f"code {err.code}") from err
             raise TransportError(f"port/Load error [{err.code}]: {err.data}") from err
 

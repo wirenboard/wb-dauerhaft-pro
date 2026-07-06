@@ -122,3 +122,23 @@ def test_error_response_is_logged_but_stays_online(caplog):
     # the device answered (so it is online) but rejected the command -> logged
     assert act.online is True
     assert any("device error response" in r.getMessage() for r in caplog.records)
+
+
+def test_reply_from_wrong_address_is_ignored():
+    def reply(_request):
+        # a frame from a different device on the shared bus
+        return p.build_frame(0x99, p.Function.CONTROL, bytes([p.ControlSub.MOVE, 0x64]))
+
+    act, _ = make_actuator(reply_for=reply)
+    act.up()
+    assert act.online is False  # a stray frame is not our answer
+
+
+def test_active_report_frame_is_ignored():
+    def reply(_request):
+        # unsolicited movement report (0x08) arriving instead of our command's reply
+        return p.build_frame(0x5F, p.Function.ACTIVE_REPORT, bytes([0x32, 0x01]))
+
+    act, _ = make_actuator(reply_for=reply)
+    act.up()
+    assert act.online is False  # wrong function -> not our answer

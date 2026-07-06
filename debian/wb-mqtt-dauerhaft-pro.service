@@ -9,6 +9,9 @@ User=root
 ExecStart=/usr/bin/wb-mqtt-dauerhaft-pro
 Restart=on-failure
 RestartSec=10
+# A bad config exits 78 (EX_CONFIG) — do not restart-loop on it; genuine
+# transient crashes (other non-zero codes) still restart.
+RestartPreventExitStatus=78
 
 [Install]
 WantedBy=multi-user.target

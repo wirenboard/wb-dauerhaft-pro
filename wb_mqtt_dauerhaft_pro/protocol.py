@@ -46,6 +46,7 @@ class Function(IntEnum):
     ERROR = 0x00  # 3.6  error report from slave: data = [0xF0, code]
     QUERY = 0x01  # 3.2  read a value (subcommand in first data byte)
     CONTROL = 0x04  # 3.4  motion control (move / stop)
+    ACTIVE_REPORT = 0x08  # 3.5  unsolicited state report on movement (default-on on some motors)
     SET_ADDRESS = 0x10  # 3.1  change device address
 
 
@@ -234,6 +235,14 @@ class SetAddressResponse:
     ok: bool
 
 
+@dataclass
+class ActiveReport:
+    """An unsolicited movement report (function 0x08). Recognized so it does not
+    raise, but the driver treats it as a stray frame, not a command reply."""
+
+    data: bytes
+
+
 def decode_response(frame: Frame):
     """Interpret a parsed response *frame* into a typed dataclass.
 
@@ -261,6 +270,9 @@ def decode_response(frame: Frame):
         # data = [address, 0x0A]
         ok = len(data) >= 2 and data[1] == SETTING_OK
         return SetAddressResponse(address=data[0] if data else -1, ok=ok)
+
+    if func == Function.ACTIVE_REPORT:
+        return ActiveReport(data=data)
 
     raise ProtocolError(f"unknown response function 0x{func:02X}")
 
