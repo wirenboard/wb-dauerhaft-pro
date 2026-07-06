@@ -88,11 +88,25 @@ class WbDevice:
     def set_value(self, name, value):
         self._pub(f"{self._base}/controls/{name}", str(value))
 
+    def error_topic(self):
+        """The device-level error topic (usable as a Last Will target)."""
+        return f"{self._base}/meta/error"
+
+    def set_error(self, error):
+        """Set/clear the device-level availability error.
+
+        Per WB conventions a non-empty ``/meta/error`` marks the device
+        unavailable; ``r``/``w``/``p`` mean read / write / period-miss. Pass an
+        empty string to clear it.
+        """
+        self._pub(self.error_topic(), error or "")
+
     def remove(self):
         """Clear all retained topics for this device (called on shutdown)."""
         for name in self._controls:
             self._pub(f"{self._base}/controls/{name}", None)
             self._pub(f"{self._base}/controls/{name}/meta", None)
+        self._pub(self.error_topic(), None)
         self._pub(f"{self._base}/meta", None)
         self._pub(f"{self._base}/meta/name", None)
 

@@ -55,9 +55,6 @@ def build_controls(dev: WbDevice, act: Actuator, enqueue):
     button("stop", 3, "Стоп", "Stop")
 
     dev.add_control(
-        "online", "switch", 4, readonly=True, title={"ru": "На связи", "en": "Online"}, initial="0"
-    )
-    dev.add_control(
         "address",
         "text",
         5,
@@ -91,7 +88,9 @@ def dispatch(act: Actuator, action: str, value: str):
 
 
 def publish_state(dev: WbDevice, act: Actuator):
-    dev.set_value("online", "1" if act.online else "0")
+    # Availability follows the WB convention: an empty /meta/error means OK, a
+    # non-empty value ("r") marks the device unavailable.
+    dev.set_error("" if act.online else "r")
     dev.set_value("address", "0x%02X" % act.cfg.address)
 
 
@@ -116,6 +115,13 @@ def main():
         logging.getLogger().setLevel(logging.DEBUG)
 
     client = make_client(DRIVER_NAME)
+    # Last Will: if the daemon dies ungracefully (SIGKILL / OOM / power loss), the
+    # broker marks the device unavailable. A single MQTT connection carries one
+    # will, so it covers the first configured device (enough for the common
+    # single-device setup); the poll loop keeps every device's error up to date
+    # while the daemon is alive.
+    if conf.devices:
+        client.will_set(f"/devices/{conf.devices[0].mqtt_id}/meta/error", "r", retain=True)
     client.connect(args.broker, args.broker_port)
     rpc = rpcclient.TMQTTRPCClient(client)
     client.on_message = rpc.on_mqtt_message
@@ -133,6 +139,7 @@ def main():
         act = Actuator(de, transport)
         dev = WbDevice(client, de.mqtt_id, de.title)
         build_controls(dev, act, enqueue)
+        dev.set_error("r")  # start unavailable until the first successful poll clears it
         entries.append((dev, act))
         dev_by_act[id(act)] = dev
         logger.info("configured %s (addr 0x%02X) on %s", de.mqtt_id, de.address, de.port.path)
