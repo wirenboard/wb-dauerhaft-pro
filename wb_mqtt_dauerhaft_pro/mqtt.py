@@ -6,10 +6,10 @@ plain paho client (the same client the RPC transport uses).
 
 Meta format (per WB conventions)::
 
-    /devices/<id>/meta/name    "<title>"
-    /devices/<id>/meta/driver  "wb-mqtt-dauerhaft-pro"
+    /devices/<id>/meta         {"driver":..., "title":{"en":..,"ru":..}}  (single JSON)
+    /devices/<id>/meta/name    "<title>"                (legacy backward-compat only)
     /devices/<id>/controls/<c>/meta  {"type","readonly","order","title":{...}}
-    /devices/<id>/controls/<c>       "<value>"        (retained)
+    /devices/<id>/controls/<c>       "<value>"          (retained)
     /devices/<id>/controls/<c>/on    <- command (subscribed)
 """
 
@@ -45,8 +45,9 @@ class WbDevice:
         self._base = f"/devices/{device_id}"
         self._controls = []
         self._on_topics = []
-        self._pub(f"{self._base}/meta/name", title)
-        self._pub(f"{self._base}/meta/driver", driver)
+        meta = {"driver": driver, "title": {"en": title, "ru": title}}
+        self._pub(f"{self._base}/meta", json.dumps(meta, ensure_ascii=False))
+        self._pub(f"{self._base}/meta/name", title)  # legacy backward-compat
 
     def add_control(
         self,
@@ -92,7 +93,7 @@ class WbDevice:
         for name in self._controls:
             self._pub(f"{self._base}/controls/{name}", None)
             self._pub(f"{self._base}/controls/{name}/meta", None)
-        self._pub(f"{self._base}/meta/driver", None)
+        self._pub(f"{self._base}/meta", None)
         self._pub(f"{self._base}/meta/name", None)
 
     def _pub(self, topic, value):
