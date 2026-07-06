@@ -135,6 +135,18 @@ def main():
         dev_by_act[id(act)] = dev
         logger.info("configured %s (addr 0x%02X) on %s", de.mqtt_id, de.address, de.port.path)
 
+    def _on_connect(_client, _userdata, _flags, _rc):
+        # With the default clean session the broker drops all subscriptions on a
+        # reconnect (e.g. mosquitto restart), and neither WbDevice nor mqttrpc
+        # re-subscribe on their own — so the /on commands and the RPC reply topic
+        # would go silent until the daemon restarts. Re-establish them here.
+        logger.info("(re)connected to broker; re-subscribing")
+        for dev_, _act in entries:
+            dev_.resubscribe()
+        rpc.subscribes.clear()  # mqttrpc re-subscribes its reply topic on the next call
+
+    client.on_connect = _on_connect
+
     def drain_commands():
         while True:
             try:

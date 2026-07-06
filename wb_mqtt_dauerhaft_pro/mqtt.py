@@ -44,6 +44,7 @@ class WbDevice:
         self.id = device_id
         self._base = f"/devices/{device_id}"
         self._controls = []
+        self._on_topics = []
         self._pub(f"{self._base}/meta/name", title)
         self._pub(f"{self._base}/meta/driver", driver)
 
@@ -74,8 +75,14 @@ class WbDevice:
     def on_command(self, name, callback):
         """Subscribe to <control>/on and route matching messages to *callback*."""
         topic = f"{self._base}/controls/{name}/on"
+        self._on_topics.append(topic)
         self._c.subscribe(topic)
         self._c.message_callback_add(topic, callback)
+
+    def resubscribe(self):
+        """Re-subscribe all command topics (a broker reconnect drops them)."""
+        for topic in self._on_topics:
+            self._c.subscribe(topic)
 
     def set_value(self, name, value):
         self._pub(f"{self._base}/controls/{name}", str(value))
