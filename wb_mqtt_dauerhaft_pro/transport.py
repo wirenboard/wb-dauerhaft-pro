@@ -44,6 +44,12 @@ DEFAULT_BROKER_PORT = 1883
 DEFAULT_RESPONSE_TIMEOUT_MS = 500
 DEFAULT_TOTAL_TIMEOUT_MS = 500
 
+# JSON-RPC error codes wb-mqtt-serial uses when a device does not answer in time.
+# The exact code varies by version — a serial read timeout comes as -32000, an
+# RPC task timeout / queue expiry as -32100 or -32600 — so match on the set plus
+# the message text rather than a single code.
+_TIMEOUT_CODES = (-32000, -32100, -32600)
+
 
 class TransportError(Exception):
     """Transport-level failure talking to wb-mqtt-serial."""
@@ -122,8 +128,10 @@ class SerialTransport:
         except rpcclient.TimeoutError as err:
             raise DeviceTimeout("no RPC reply from wb-mqtt-serial") from err
         except rpcclient.MQTTRPCError as err:
-            if err.data and "timed out" in str(err.data).lower():
-                raise DeviceTimeout(str(err.data)) from err
+            msg = str(err.data or "")
+            lowered = msg.lower()
+            if err.code in _TIMEOUT_CODES or "timed out" in lowered or "timeout" in lowered:
+                raise DeviceTimeout(msg or f"code {err.code}") from err
             raise TransportError(f"port/Load error [{err.code}]: {err.data}") from err
 
         try:
