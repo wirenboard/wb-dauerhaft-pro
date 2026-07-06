@@ -45,7 +45,9 @@ def build_controls(dev: WbDevice, act: Actuator, enqueue):
         return _cb
 
     def button(name, order, ru, en):
-        dev.add_control(name, "pushbutton", order, title={"ru": ru, "en": en}, initial="")
+        # A pushbutton has no retained state (its only value is a momentary "1"),
+        # so publish no initial value — otherwise the value topic keeps a retained "".
+        dev.add_control(name, "pushbutton", order, title={"ru": ru, "en": en}, initial=None)
         dev.on_command(name, cmd(name))
 
     button("up", 1, "Открыть (вверх)", "Open (up)")
