@@ -125,5 +125,9 @@ class Actuator:
             logger.warning("%s: bad frame %s: %s", self.cfg.mqtt_id, reply.hex(), exc)
             self.online = False
             return None
+        # The device answered (so it is online), but an error frame means it
+        # rejected the command — surface it instead of silently ignoring it.
+        if isinstance(resp, protocol.ErrorResponse):
+            logger.warning("%s: device error response, code 0x%02X", self.cfg.mqtt_id, resp.code)
         self.online = True
         return resp
