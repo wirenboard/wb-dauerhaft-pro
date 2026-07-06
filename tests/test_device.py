@@ -110,3 +110,15 @@ def test_set_address_failure_keeps_old_address():
     act, _ = make_actuator(reply_for=reply)
     assert act.set_address(0x5E) is False
     assert act.cfg.address == 0x5F
+
+
+def test_error_response_is_logged_but_stays_online(caplog):
+    def reply(_request):
+        return p.build_frame(0x5F, p.Function.ERROR, bytes([p.ERROR_MARKER, 0x03]))
+
+    act, _ = make_actuator(reply_for=reply)
+    with caplog.at_level("WARNING"):
+        act.up()
+    # the device answered (so it is online) but rejected the command -> logged
+    assert act.online is True
+    assert any("device error response" in r.getMessage() for r in caplog.records)
