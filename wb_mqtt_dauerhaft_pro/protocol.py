@@ -66,6 +66,7 @@ class ControlSub(IntEnum):
 # Exceptions
 # --------------------------------------------------------------------------- #
 
+
 class ProtocolError(Exception):
     """Base class for protocol errors."""
 
@@ -81,6 +82,7 @@ class CrcError(ProtocolError):
 # --------------------------------------------------------------------------- #
 # CRC-16/Modbus
 # --------------------------------------------------------------------------- #
+
 
 def crc16_modbus(data: bytes) -> int:
     """Return the CRC-16/Modbus of *data* as a 16-bit int.
@@ -108,6 +110,7 @@ def crc_bytes(data: bytes) -> bytes:
 # --------------------------------------------------------------------------- #
 # Frame build / parse
 # --------------------------------------------------------------------------- #
+
 
 @dataclass(frozen=True)
 class Frame:
@@ -157,8 +160,7 @@ def parse_frame(raw: Union[bytes, Sequence[int]]) -> Frame:
     body, crc_recv = raw[:-2], raw[-2:]
     if crc_bytes(body) != crc_recv:
         raise CrcError(
-            f"CRC mismatch: got {crc_recv.hex()}, expected {crc_bytes(body).hex()} "
-            f"for {body.hex()}"
+            f"CRC mismatch: got {crc_recv.hex()}, expected {crc_bytes(body).hex()} " f"for {body.hex()}"
         )
 
     declared_len = raw[2]
@@ -171,6 +173,7 @@ def parse_frame(raw: Union[bytes, Sequence[int]]) -> Frame:
 # --------------------------------------------------------------------------- #
 # Request builders (MVP: address + move up/down + stop)
 # --------------------------------------------------------------------------- #
+
 
 def query_address(address: int) -> bytes:
     """Read the device's own address. Doubles as a liveness "ping"."""
@@ -206,6 +209,7 @@ def set_address(address: int, new_address: int) -> bytes:
 # --------------------------------------------------------------------------- #
 # Response decoding (MVP subset)
 # --------------------------------------------------------------------------- #
+
 
 @dataclass
 class ErrorResponse:

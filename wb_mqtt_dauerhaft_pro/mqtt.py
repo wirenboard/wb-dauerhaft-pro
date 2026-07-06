@@ -30,8 +30,18 @@ class WbDevice:
         self._pub(f"{self._base}/meta/name", title)
         self._pub(f"{self._base}/meta/driver", driver)
 
-    def add_control(self, name, control_type, order, *, readonly=False, title=None,
-                    min_value=None, max_value=None, initial=""):
+    def add_control(
+        self,
+        name,
+        control_type,
+        order,
+        *,
+        readonly=False,
+        title=None,
+        min_value=None,
+        max_value=None,
+        initial="",
+    ):
         meta = {"type": control_type, "readonly": readonly, "order": order}
         if title is not None:
             meta["title"] = title if isinstance(title, dict) else {"en": title}

@@ -42,6 +42,7 @@ def build_controls(dev: WbDevice, act: Actuator, enqueue):
     def cmd(action):
         def _cb(_client, _userdata, msg):
             enqueue(act, action, msg.payload.decode("utf-8", "replace"))
+
         return _cb
 
     def button(name, order, ru, en):
@@ -52,13 +53,26 @@ def build_controls(dev: WbDevice, act: Actuator, enqueue):
     button("down", 2, "Закрыть (вниз)", "Close (down)")
     button("stop", 3, "Стоп", "Stop")
 
-    dev.add_control("online", "switch", 4, readonly=True,
-                    title={"ru": "На связи", "en": "Online"}, initial="0")
-    dev.add_control("address", "text", 5, readonly=True,
-                    title={"ru": "Адрес", "en": "Address"}, initial="0x%02X" % act.cfg.address)
-    dev.add_control("set_address", "value", 6,
-                    title={"ru": "Сменить адрес на", "en": "Set address to"},
-                    min_value=1, max_value=255, initial=act.cfg.address)
+    dev.add_control(
+        "online", "switch", 4, readonly=True, title={"ru": "На связи", "en": "Online"}, initial="0"
+    )
+    dev.add_control(
+        "address",
+        "text",
+        5,
+        readonly=True,
+        title={"ru": "Адрес", "en": "Address"},
+        initial="0x%02X" % act.cfg.address,
+    )
+    dev.add_control(
+        "set_address",
+        "value",
+        6,
+        title={"ru": "Сменить адрес на", "en": "Set address to"},
+        min_value=1,
+        max_value=255,
+        initial=act.cfg.address,
+    )
     dev.on_command("set_address", cmd("set_address"))
 
 
@@ -89,8 +103,10 @@ def main():
     args = parser.parse_args()
 
     conf = cfgmod.load_config(args.config)
-    logging.basicConfig(level=logging.DEBUG if (args.debug or conf.debug) else logging.INFO,
-                        format="%(levelname)s: %(message)s")
+    logging.basicConfig(
+        level=logging.DEBUG if (args.debug or conf.debug) else logging.INFO,
+        format="%(levelname)s: %(message)s",
+    )
 
     client = mqtt.Client(DRIVER_NAME)
     client.connect(args.broker, args.broker_port)

@@ -1,13 +1,12 @@
 """Unit tests for the MVP protocol codec (pure, no I/O)."""
 
 import pytest
-
 from wb_mqtt_dauerhaft_pro import protocol as p
-
 
 # --------------------------------------------------------------------------- #
 # CRC-16/Modbus
 # --------------------------------------------------------------------------- #
+
 
 def test_crc_bytes_low_high_order():
     # Body of a captured query-position frame to 0x5F: 5F 01 01 02
@@ -22,6 +21,7 @@ def test_crc16_value():
 # --------------------------------------------------------------------------- #
 # frame build / parse
 # --------------------------------------------------------------------------- #
+
 
 def test_build_frame_appends_length_and_crc():
     frame = p.build_frame(0x5F, p.Function.QUERY, bytes([0x02]))
@@ -63,6 +63,7 @@ def test_build_frame_rejects_out_of_range_address():
 # request builders (MVP: address + up/down + stop)
 # --------------------------------------------------------------------------- #
 
+
 def test_control_up_is_move_0x64():
     frame = p.parse_frame(p.control_up(0x5F))
     assert frame.function == p.Function.CONTROL
@@ -101,6 +102,7 @@ def test_set_address_rejects_bad_new_address():
 # --------------------------------------------------------------------------- #
 # response decoding
 # --------------------------------------------------------------------------- #
+
 
 def test_decode_query_address_response():
     raw = p.build_frame(0x5F, p.Function.QUERY, bytes([p.QuerySub.ADDRESS, 0x5F]))

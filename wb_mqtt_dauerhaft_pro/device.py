@@ -81,12 +81,13 @@ class Actuator:
         if isinstance(resp, protocol.SetAddressResponse) and resp.ok:
             logger.warning(
                 "%s: address changed 0x%02X -> 0x%02X; UPDATE THE CONFIG to persist it",
-                self.cfg.mqtt_id, self.cfg.address, new_address,
+                self.cfg.mqtt_id,
+                self.cfg.address,
+                new_address,
             )
             self.cfg.address = new_address  # follow at runtime so control keeps working
             return True
-        logger.warning("%s: address change to 0x%02X failed/unconfirmed",
-                       self.cfg.mqtt_id, new_address)
+        logger.warning("%s: address change to 0x%02X failed/unconfirmed", self.cfg.mqtt_id, new_address)
         return False
 
     # ------------------------------------------------------------------ #
@@ -103,8 +104,7 @@ class Actuator:
     def _exchange(self, request: bytes, total_timeout_ms=None):
         """Send *request*, decode the reply, update ``online``; return response or None."""
         try:
-            reply = self._t.transceive(self.cfg.port, request, RESP_SIZE,
-                                       total_timeout_ms=total_timeout_ms)
+            reply = self._t.transceive(self.cfg.port, request, RESP_SIZE, total_timeout_ms=total_timeout_ms)
         except DeviceTimeout:
             self.online = False
             return None

@@ -49,6 +49,7 @@ def load_config(path: str = CONFIG_PATH, schema_path: str = SCHEMA_PATH) -> Conf
 
     try:
         import jsonschema  # optional; validate only if available and schema present
+
         with open(schema_path, "r", encoding="utf-8") as sf:
             jsonschema.validate(raw, json.load(sf))
     except FileNotFoundError:

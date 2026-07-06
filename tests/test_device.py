@@ -1,9 +1,8 @@
 """Unit tests for the Actuator model using a fake transport (no bus, no MQTT)."""
 
 import pytest
-
 from wb_mqtt_dauerhaft_pro import protocol as p
-from wb_mqtt_dauerhaft_pro.device import Actuator, ActuatorConfig, ADDRESS_TIMEOUT_MS
+from wb_mqtt_dauerhaft_pro.device import ADDRESS_TIMEOUT_MS, Actuator, ActuatorConfig
 from wb_mqtt_dauerhaft_pro.transport import DeviceTimeout, PortConfig
 
 
@@ -28,15 +27,15 @@ class FakeTransport:
             new_addr = frame.data[0]
             return p.build_frame(new_addr, p.Function.SET_ADDRESS, bytes([new_addr, p.SETTING_OK]))
         if frame.function == p.Function.QUERY:
-            return p.build_frame(frame.address, p.Function.QUERY,
-                                 bytes([p.QuerySub.ADDRESS, frame.address]))
+            return p.build_frame(frame.address, p.Function.QUERY, bytes([p.QuerySub.ADDRESS, frame.address]))
         # control: echo the request back (a valid frame)
         return request
 
 
 def make_actuator(**kwargs):
-    cfg = ActuatorConfig(mqtt_id="blind1", title="Blind", address=0x5F,
-                         port=PortConfig(path="/dev/ttyRS485-2"))
+    cfg = ActuatorConfig(
+        mqtt_id="blind1", title="Blind", address=0x5F, port=PortConfig(path="/dev/ttyRS485-2")
+    )
     transport = FakeTransport(**kwargs)
     return Actuator(cfg, transport), transport
 
