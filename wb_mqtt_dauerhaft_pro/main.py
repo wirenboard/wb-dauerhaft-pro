@@ -92,6 +92,10 @@ def publish_state(dev: WbDevice, act: Actuator):
     # non-empty value ("r") marks the device unavailable.
     dev.set_error("" if act.online else "r")
     dev.set_value("address", "0x%02X" % act.cfg.address)
+    # Track the current address in the set-address field too, so a reloaded UI
+    # shows the real value and re-sending it will not revert the device. Deduped
+    # publishing means this only fires when the address actually changes.
+    dev.set_value("set_address", act.cfg.address)
 
 
 def main():
@@ -195,6 +199,10 @@ def main():
         logger.info("shutting down")
         for dev, _act in entries:
             dev.remove()
+        # dev.remove() publishes retained clears asynchronously; let the network
+        # loop flush them before we stop it, otherwise a device would linger in
+        # the UI with its last retained state.
+        time.sleep(0.3)
         client.loop_stop()
         client.disconnect()
 

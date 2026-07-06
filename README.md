@@ -64,7 +64,7 @@ Configured via **wb-mqtt-confed** (`/etc/wb-mqtt-dauerhaft-pro.conf`):
 Standard Debian package build (see the WB debianisation guide):
 
 ```sh
-sudo apt update && sudo apt install git dpkg-dev debhelper python3-pytest
+sudo apt update && sudo apt install git dpkg-dev debhelper dh-python python3-all python3-pytest
 dpkg-buildpackage -rfakeroot -us -uc
 sudo apt install ../wb-mqtt-dauerhaft-pro_*.deb
 ```

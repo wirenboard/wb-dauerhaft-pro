@@ -45,6 +45,7 @@ class WbDevice:
         self._base = f"/devices/{device_id}"
         self._controls = []
         self._on_topics = []
+        self._last = {}  # topic -> last published value, to skip unchanged retained publishes
         meta = {"driver": driver, "title": {"en": title, "ru": title}}
         self._pub(f"{self._base}/meta", json.dumps(meta, ensure_ascii=False))
         self._pub(f"{self._base}/meta/name", title)  # legacy backward-compat
@@ -111,4 +112,10 @@ class WbDevice:
         self._pub(f"{self._base}/meta/name", None)
 
     def _pub(self, topic, value):
+        # Skip republishing an unchanged retained value — the poll loop would
+        # otherwise resend the same error/address to every /devices/# subscriber
+        # on each cycle.
+        if topic in self._last and self._last[topic] == value:
+            return
+        self._last[topic] = value
         self._c.publish(topic, value, retain=True)

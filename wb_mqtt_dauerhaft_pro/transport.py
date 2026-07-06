@@ -24,19 +24,17 @@ A bus/device timeout is reported by wb-mqtt-serial as an RPC error (code -32000,
 "... request timed out"); a total absence of an RPC reply raises TimeoutError.
 Both are surfaced here as :class:`DeviceTimeout`.
 
-Targets the versions shipped on the controller: paho-mqtt 1.5.1, mqttrpc 1.3.5.
+Works with the versions shipped on the controller across releases: paho-mqtt 1.x
+(Bullseye) and 2.x (Trixie), mqttrpc 1.3.x. The paho client is created via
+:func:`wb_mqtt_dauerhaft_pro.mqtt.make_client` to bridge the 1.x/2.x API gap.
 """
 
-import contextlib
 from dataclasses import dataclass
 from typing import Optional
 
-# paho / mqttrpc are imported lazily (in transceive/connect) so this module — and
-# everything that depends on it — imports on a dev box without paho/mqttrpc. The
-# daemon runs on the controller where both exist.
-
-DEFAULT_BROKER_HOST = "127.0.0.1"
-DEFAULT_BROKER_PORT = 1883
+# mqttrpc is imported lazily (in transceive) so this module — and everything that
+# depends on it — imports on a dev box without mqttrpc. The daemon runs on the
+# controller where it exists.
 
 # Per-exchange budgets. response_timeout bounds the wait for the device's reply
 # (reads/motion answer well within 500 ms); total_timeout caps the whole RPC task.
@@ -141,27 +139,3 @@ class SerialTransport:
             # A malformed RPC result (non-dict, or an odd-length / non-hex string)
             # must not crash the daemon — surface it as a transport error instead.
             raise TransportError(f"bad port/Load response: {result!r}") from err
-
-
-@contextlib.contextmanager
-def connect(
-    host: str = DEFAULT_BROKER_HOST,
-    port: int = DEFAULT_BROKER_PORT,
-    client_id: str = "wb-mqtt-dauerhaft-pro",
-    **kwargs,
-):
-    """Context manager yielding a connected :class:`SerialTransport`."""
-    from mqttrpc import client as rpcclient
-
-    from .mqtt import make_client  # lazy import (only on the controller)
-
-    client = make_client(client_id)
-    client.connect(host, port)
-    rpc = rpcclient.TMQTTRPCClient(client)
-    client.on_message = rpc.on_mqtt_message
-    client.loop_start()
-    try:
-        yield SerialTransport(rpc, **kwargs)
-    finally:
-        client.loop_stop()
-        client.disconnect()
