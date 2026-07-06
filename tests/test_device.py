@@ -1,6 +1,7 @@
 """Unit tests for the Actuator model using a fake transport (no bus, no MQTT)."""
 
 import pytest
+
 from wb_mqtt_dauerhaft_pro import protocol as p
 from wb_mqtt_dauerhaft_pro.device import ADDRESS_TIMEOUT_MS, Actuator, ActuatorConfig
 from wb_mqtt_dauerhaft_pro.transport import DeviceTimeout, PortConfig

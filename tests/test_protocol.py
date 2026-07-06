@@ -1,6 +1,7 @@
 """Unit tests for the MVP protocol codec (pure, no I/O)."""
 
 import pytest
+
 from wb_mqtt_dauerhaft_pro import protocol as p
 
 # --------------------------------------------------------------------------- #
