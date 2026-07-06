@@ -21,6 +21,23 @@ logger = logging.getLogger(__name__)
 DRIVER_NAME = "wb-mqtt-dauerhaft-pro"
 
 
+def make_client(client_id):
+    """Create a paho MQTT client that works on both paho-mqtt 1.x and 2.x.
+
+    paho-mqtt 2.0 made ``callback_api_version`` the first positional argument of
+    ``Client(...)``, so the 1.x call ``Client(client_id)`` fails there. Request
+    the v1 callback API explicitly on 2.x (keeps the v1 callback signatures the
+    rest of the driver and mqttrpc rely on); fall back to the old call on 1.x.
+    """
+    import paho.mqtt.client as mqtt
+
+    try:
+        from paho.mqtt.enums import CallbackAPIVersion
+    except ImportError:
+        return mqtt.Client(client_id)  # paho-mqtt 1.x
+    return mqtt.Client(CallbackAPIVersion.VERSION1, client_id)  # paho-mqtt 2.x
+
+
 class WbDevice:
     def __init__(self, client, device_id, title, driver=DRIVER_NAME):
         self._c = client

@@ -18,12 +18,11 @@ import signal
 import threading
 import time
 
-import paho.mqtt.client as mqtt
 from mqttrpc import client as rpcclient
 
 from . import config as cfgmod
 from .device import Actuator
-from .mqtt import DRIVER_NAME, WbDevice
+from .mqtt import DRIVER_NAME, WbDevice, make_client
 from .transport import SerialTransport
 
 logger = logging.getLogger(__name__)
@@ -108,7 +107,7 @@ def main():
         format="%(levelname)s: %(message)s",
     )
 
-    client = mqtt.Client(DRIVER_NAME)
+    client = make_client(DRIVER_NAME)
     client.connect(args.broker, args.broker_port)
     rpc = rpcclient.TMQTTRPCClient(client)
     client.on_message = rpc.on_mqtt_message

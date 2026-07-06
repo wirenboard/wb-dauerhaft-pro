@@ -10,3 +10,5 @@ debian/files
 debian/*.substvars
 debian/*.debhelper.log
 debian/wb-mqtt-dauerhaft-pro/
+.venv/
+uv.lock

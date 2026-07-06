@@ -117,10 +117,11 @@ def connect(
     **kwargs,
 ):
     """Context manager yielding a connected :class:`SerialTransport`."""
-    import paho.mqtt.client as mqtt  # lazy import (only on the controller)
     from mqttrpc import client as rpcclient
 
-    client = mqtt.Client(client_id)
+    from .mqtt import make_client  # lazy import (only on the controller)
+
+    client = make_client(client_id)
     client.connect(host, port)
     rpc = rpcclient.TMQTTRPCClient(client)
     client.on_message = rpc.on_mqtt_message

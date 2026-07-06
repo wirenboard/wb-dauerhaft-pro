@@ -1,0 +1,15 @@
+# Tooling config only (black, isort). No [build-system]/[project] table, so the
+# Debian build still goes through setup.py/pybuild unchanged.
+#
+# Mirrors the Wiren Board codestyle (wirenboard/codestyle python/config), plus an
+# explicit known_first_party so isort classifies this package consistently across
+# environments (its auto-detection differs between the CI host and dev machines,
+# which otherwise flips the blank line between third-party and first-party imports).
+
+[tool.black]
+line-length = 110
+target-version = ['py38']
+
+[tool.isort]
+profile = "black"
+known_first_party = ["wb_mqtt_dauerhaft_pro"]
