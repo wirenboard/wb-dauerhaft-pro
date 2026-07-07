@@ -14,7 +14,8 @@ Architecture: all
 Depends: ${python3:Depends},
          ${misc:Depends},
          python3-mqttrpc,
-         python3-paho-mqtt
+         python3-paho-mqtt,
+         python3-systemd
 Description: MQTT driver for Dauerhaft PRO RS-485 actuators
  A Wiren Board MQTT driver for Dauerhaft PRO RS-485 blind and shutter actuators.
  It drives each actuator over the RS-485 bus through wb-mqtt-serial's port/Load

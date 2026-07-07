@@ -1,4 +1,4 @@
-"""wb-dauerhaft-pro daemon (MVP).
+"""wb-dauerhaft-pro daemon.
 
 Single control loop. paho's network thread only *delivers* messages (RPC replies
 -> mqttrpc; control ``/on`` -> a command queue). One worker loop (the main thread)
@@ -9,13 +9,15 @@ transceive itself — the reply is delivered on that same thread).
 
 Controls per device: Up / Down / Stop, a "set address" field and a read-only
 Address indicator; availability is published via the conventional /meta/error
-topic. That is the whole MVP surface.
+topic. That is the whole control surface.
 """
 
 import argparse
 import logging
+import os
 import queue
 import signal
+import sys
 import threading
 import time
 
@@ -32,6 +34,49 @@ logger = logging.getLogger(__name__)
 # RestartPreventExitStatus to this, so a broken config does not restart-loop
 # while genuine transient crashes (exit 1) still restart.
 EXIT_CONFIG_ERROR = 78
+
+
+def _stderr_goes_to_journal() -> bool:
+    """True when this process's stderr is the systemd journal stream.
+
+    systemd sets ``$JOURNAL_STREAM`` to the ``device:inode`` of the journal
+    connection; comparing it against stderr confirms the stream is genuinely ours
+    rather than inherited from a parent or redirected to a file.
+    """
+    stream = os.environ.get("JOURNAL_STREAM")
+    if not stream:
+        return False
+    try:
+        device, inode = (int(part) for part in stream.split(":", 1))
+    except ValueError:
+        return False
+    try:
+        stat = os.fstat(sys.stderr.fileno())
+    except OSError:
+        return False
+    return stat.st_dev == device and stat.st_ino == inode
+
+
+def _make_log_handler() -> logging.Handler:
+    """Pick the log handler based on where the output goes.
+
+    Under systemd we emit native journal records so each Python log level maps to
+    a journal PRIORITY (``journalctl -p`` filtering and the web UI then show the
+    real severity). Run from a console, or without python3-systemd, we fall back
+    to a plain text handler so the level stays readable.
+    """
+    if _stderr_goes_to_journal():
+        try:
+            # Optional dependency, imported lazily only when output is the journal.
+            # pylint: disable-next=import-outside-toplevel
+            from systemd.journal import JournalHandler
+
+            return JournalHandler(SYSLOG_IDENTIFIER=DRIVER_NAME)
+        except ImportError:
+            pass
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter(logging.BASIC_FORMAT))
+    return handler
 
 
 def build_controls(dev: WbDevice, act: Actuator, enqueue):
@@ -113,7 +158,7 @@ def publish_state(dev: WbDevice, act: Actuator):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Wiren Board Dauerhaft PRO RS-485 driver (MVP)")
+    parser = argparse.ArgumentParser(description="Wiren Board Dauerhaft PRO RS-485 driver")
     parser.add_argument("-c", "--config", default=cfgmod.CONFIG_PATH)
     parser.add_argument("-b", "--broker", default="127.0.0.1")
     parser.add_argument("-p", "--broker-port", type=int, default=1883)
@@ -122,7 +167,7 @@ def main():
 
     logging.basicConfig(
         level=logging.DEBUG if args.debug else logging.INFO,
-        format="%(levelname)s: %(message)s",
+        handlers=[_make_log_handler()],
     )
     try:
         conf = cfgmod.load_config(args.config)
