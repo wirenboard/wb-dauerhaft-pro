@@ -1,0 +1,15 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE=1
+export PYBUILD_NAME=wb-dauerhaft-pro
+
+override_dh_builddeb:
+	dh_builddeb -- -Zgzip
+
+# Non-Python files are installed only via debian/install
+override_dh_auto_install:
+	dh_auto_install
+	dh_install --fail-missing
+
+%:
+	dh $@ --with python3 --buildsystem=pybuild

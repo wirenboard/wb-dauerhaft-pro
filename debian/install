@@ -1,0 +1,4 @@
+# Python package is installed by pybuild (see setup.py).
+# Non-Python files go here:
+
+configs/wb-dauerhaft-pro.schema.json /usr/share/wb-mqtt-confed/schemas
