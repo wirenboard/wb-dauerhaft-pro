@@ -160,3 +160,12 @@ def test_active_report_does_not_flip_online_offline():
     t._reply_for = lambda _req: p.build_frame(0x5F, p.Function.ACTIVE_REPORT, bytes([0x23, 0x00]))
     act.up()
     assert act.online is True  # wrong function -> not our answer, must NOT offline us
+
+
+def test_timeout_is_logged_not_silent(caplog):
+    # A non-responding device (e.g. a wrong address) must leave a breadcrumb in
+    # the log, identifying which device, rather than going offline silently.
+    act, _ = make_actuator(raise_timeout=True)
+    with caplog.at_level("WARNING"):
+        act.ping()
+    assert any("not responding" in r.getMessage() and "blind1" in r.getMessage() for r in caplog.records)

@@ -129,7 +129,11 @@ class Actuator:
                 response_timeout_ms=response_timeout_ms,
                 total_timeout_ms=total_timeout_ms,
             )
-        except DeviceTimeout:
+        except DeviceTimeout as exc:
+            # A silent offline is hard to diagnose (a wrong address just looks
+            # dead). Log it like a transport error so the reason is visible; this
+            # repeats each poll while the device stays unreachable.
+            logger.warning("%s: not responding: %s", self.cfg.mqtt_id, exc)
             self._register_miss()
             return None
         except TransportError as exc:

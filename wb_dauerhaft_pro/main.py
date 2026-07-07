@@ -231,11 +231,11 @@ def main():
                 dev, act, action, value = cmd_q.get_nowait()
             except queue.Empty:
                 return
-            logger.debug("command: %s = %r", action, value)
+            logger.debug("%s: command %s = %r", dev.id, action, value)
             try:
                 dispatch(act, action, value)
             except Exception as exc:  # pylint: disable=broad-except
-                logger.warning("command %s failed: %s", action, exc)
+                logger.warning("%s: command %s failed: %s", dev.id, action, exc)
             publish_state(dev, act)
 
     stop = threading.Event()
