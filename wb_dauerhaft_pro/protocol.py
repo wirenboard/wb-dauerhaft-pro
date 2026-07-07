@@ -1,7 +1,7 @@
-"""Wire protocol codec for Dauerhaft PRO RS-485 actuators (MVP subset).
+"""Wire protocol codec for Dauerhaft PRO RS-485 actuators (supported subset).
 
 Implements just enough of the "Profkarniz Dauerhaft PRO RS-485 v2.3" protocol
-for the MVP driver: set the device address and drive the motor (up / down /
+for the driver: set the device address and drive the motor (up / down /
 stop). This module is pure (no I/O) so it can be unit-tested against captured
 frames.
 
@@ -41,7 +41,7 @@ ERROR_MARKER = 0xF0  # first data byte of an error report (function 0x00)
 
 
 class Function(IntEnum):
-    """Wire function codes (spec section 3), MVP subset."""
+    """Wire function codes (spec section 3), supported subset."""
 
     ERROR = 0x00  # 3.6  error report from slave: data = [0xF0, code]
     QUERY = 0x01  # 3.2  read a value (subcommand in first data byte)
@@ -172,7 +172,7 @@ def parse_frame(raw: Union[bytes, Sequence[int]]) -> Frame:
 
 
 # --------------------------------------------------------------------------- #
-# Request builders (MVP: address + move up/down + stop)
+# Request builders (address + move up/down + stop)
 # --------------------------------------------------------------------------- #
 
 
@@ -208,7 +208,7 @@ def set_address(address: int, new_address: int) -> bytes:
 
 
 # --------------------------------------------------------------------------- #
-# Response decoding (MVP subset)
+# Response decoding (supported subset)
 # --------------------------------------------------------------------------- #
 
 

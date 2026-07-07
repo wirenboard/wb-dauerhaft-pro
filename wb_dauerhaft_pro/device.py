@@ -1,10 +1,10 @@
-"""Actuator model: maps the MVP actions to protocol frames and tracks liveness.
+"""Actuator model: maps the supported actions to protocol frames and tracks liveness.
 
 One :class:`Actuator` per physical device. It owns no MQTT and no I/O loop; it
 uses an injected transport (:class:`~wb_dauerhaft_pro.transport.SerialTransport`
 or a test fake) to talk to the device.
 
-MVP scope — nothing else:
+Supported operations:
   * :meth:`up` / :meth:`down` / :meth:`stop` — drive the motor;
   * :meth:`set_address` — change the device's RS-485 address;
   * :meth:`ping` — read the device address, used as a liveness probe.
@@ -18,10 +18,11 @@ from .transport import DeviceTimeout, PortConfig, TransportError
 
 logger = logging.getLogger(__name__)
 
-# A reply is addr+func+len + up to 2 data bytes + 2 CRC = 7 bytes for every MVP
-# command (move/stop echo, address query, set-address ack). This is exact only
-# because the MVP has no variable-length replies; a firmware-version query (3
-# data bytes) or similar would need its own size, derived from the request.
+# A reply is addr+func+len + up to 2 data bytes + 2 CRC = 7 bytes for every
+# supported command (move/stop echo, address query, set-address ack). This is
+# exact only because these commands have no variable-length replies; a
+# firmware-version query (3 data bytes) or similar would need its own size,
+# derived from the request.
 RESP_SIZE = 7
 
 # Changing the address writes the device's flash and answers slower than a plain
@@ -43,7 +44,7 @@ class ActuatorConfig:
 
 
 class Actuator:
-    """High-level control + liveness for one Dauerhaft PRO actuator (MVP)."""
+    """High-level control + liveness for one Dauerhaft PRO actuator."""
 
     def __init__(self, config: ActuatorConfig, transport):
         self.cfg = config

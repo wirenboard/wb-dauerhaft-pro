@@ -1,4 +1,4 @@
-"""Unit tests for the MVP protocol codec (pure, no I/O)."""
+"""Unit tests for the protocol codec (pure, no I/O)."""
 
 import pytest
 
@@ -61,7 +61,7 @@ def test_build_frame_rejects_out_of_range_address():
 
 
 # --------------------------------------------------------------------------- #
-# request builders (MVP: address + up/down + stop)
+# request builders (address + up/down + stop)
 # --------------------------------------------------------------------------- #
 
 

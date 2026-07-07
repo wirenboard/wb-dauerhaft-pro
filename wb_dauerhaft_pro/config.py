@@ -1,4 +1,4 @@
-"""Config loading for the Dauerhaft PRO driver (MVP).
+"""Config loading for the Dauerhaft PRO driver.
 
 The config file is plain JSON edited via wb-mqtt-confed (see the .schema.json).
 This module reads it, optionally validates against the schema if jsonschema is

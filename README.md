@@ -2,9 +2,9 @@
 
 Wiren Board MQTT driver for **Dauerhaft PRO RS-485** blind and shutter actuators.
 
-This is an MVP: it can drive an actuator **Up / Down / Stop** and **change its
-RS-485 address**. Position feedback, limit calibration, slat angle and other
-service commands are intentionally out of scope for now.
+The driver can drive an actuator **Up / Down / Stop** and **change its RS-485
+address**. Position feedback, limit calibration, slat angle and other service
+commands are intentionally out of scope for now.
 
 ## How it works
 
@@ -13,7 +13,7 @@ protocol frame through **wb-mqtt-serial**'s `port/Load` MQTT-RPC, so Dauerhaft
 actuators share the RS-485 bus with regular Modbus devices without collisions.
 
 The Dauerhaft PRO protocol is Modbus-RTU framing (9600 8N1 by default) with a
-vendor-specific function set. The driver implements just the MVP subset:
+vendor-specific function set. The driver implements this subset:
 
 | Action        | Function | Data          |
 |---------------|----------|---------------|
@@ -28,10 +28,12 @@ vendor-specific function set. The driver implements just the MVP subset:
 Each configured actuator becomes an MQTT device with these controls:
 
 * **Up / Down / Stop** — push buttons that drive the motor;
-* **Online** — read-only liveness indicator (the driver periodically reads the
-  device address as a ping);
 * **Address** — read-only current RS-485 address;
 * **Set address to** — writes a new RS-485 address to the device.
+
+Device availability is published on the conventional `/meta/error` topic (the
+driver periodically reads the device address as a liveness ping), not as a
+separate control.
 
 > Changing the address takes effect on the device immediately and the driver
 > follows it at runtime, but you must also update the address in the config
@@ -68,6 +70,10 @@ sudo apt update && sudo apt install git dpkg-dev debhelper dh-python python3-all
 dpkg-buildpackage -rfakeroot -us -uc
 sudo apt install ../wb-dauerhaft-pro_*.deb
 ```
+
+Installing the package pulls its runtime dependencies automatically:
+`python3-paho-mqtt`, `python3-mqttrpc` and `python3-systemd` (the last enables
+journal-native logging, so each log level maps to a journal priority).
 
 On the Wiren Board build server the package is built by Jenkins (`Jenkinsfile`,
 `buildDebSbuild`).
