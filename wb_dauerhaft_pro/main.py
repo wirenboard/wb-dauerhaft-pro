@@ -79,6 +79,23 @@ def _make_log_handler() -> logging.Handler:
     return handler
 
 
+def _setup_logging(debug: bool) -> None:
+    """Attach a single WB-appropriate handler to the root logger.
+
+    Deliberately not via ``logging.basicConfig(handlers=...)``: basicConfig
+    assigns the default ``levelname:name:message`` formatter to any handler that
+    has none, which would prepend a redundant text level to every journal record
+    (the level is already the journal PRIORITY). Attaching the handler directly
+    leaves the journal handler formatter-less, so it emits a clean message; the
+    console fallback keeps its own explicit BASIC_FORMAT.
+    """
+    root = logging.getLogger()
+    for handler in list(root.handlers):
+        root.removeHandler(handler)
+    root.addHandler(_make_log_handler())
+    root.setLevel(logging.DEBUG if debug else logging.INFO)
+
+
 def build_controls(dev: WbDevice, act: Actuator, enqueue):
     """Create the actuator's controls and wire command callbacks (enqueue only)."""
 
@@ -165,10 +182,7 @@ def main():
     parser.add_argument("-d", "--debug", action="store_true")
     args = parser.parse_args()
 
-    logging.basicConfig(
-        level=logging.DEBUG if args.debug else logging.INFO,
-        handlers=[_make_log_handler()],
-    )
+    _setup_logging(args.debug)
     try:
         conf = cfgmod.load_config(args.config)
     except cfgmod.ConfigError as err:

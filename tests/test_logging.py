@@ -69,3 +69,51 @@ def test_make_log_handler_falls_back_when_systemd_missing(monkeypatch):
     monkeypatch.setitem(sys.modules, "systemd.journal", None)
     handler = main._make_log_handler()
     assert isinstance(handler, logging.StreamHandler)
+
+
+def test_setup_logging_attaches_single_handler(monkeypatch):
+    monkeypatch.setattr(main, "_stderr_goes_to_journal", lambda: False)
+    root = logging.getLogger()
+    saved, saved_level = root.handlers[:], root.level
+    try:
+        main._setup_logging(False)
+        assert len(root.handlers) == 1
+        assert isinstance(root.handlers[0], logging.StreamHandler)
+        assert root.level == logging.INFO
+        # Idempotent: a second call must replace, not stack, handlers.
+        main._setup_logging(True)
+        assert len(root.handlers) == 1
+        assert root.level == logging.DEBUG
+    finally:
+        root.handlers[:] = saved
+        root.setLevel(saved_level)
+
+
+def test_setup_logging_journal_handler_stays_formatter_less(monkeypatch):
+    monkeypatch.setattr(main, "_stderr_goes_to_journal", lambda: True)
+
+    class FakeJournalHandler(logging.Handler):
+        def __init__(self, **_kwargs):
+            super().__init__()
+
+        def emit(self, record):
+            pass
+
+    fake_journal = types.ModuleType("systemd.journal")
+    fake_journal.JournalHandler = FakeJournalHandler
+    fake_systemd = types.ModuleType("systemd")
+    fake_systemd.journal = fake_journal
+    monkeypatch.setitem(sys.modules, "systemd", fake_systemd)
+    monkeypatch.setitem(sys.modules, "systemd.journal", fake_journal)
+
+    root = logging.getLogger()
+    saved, saved_level = root.handlers[:], root.level
+    try:
+        main._setup_logging(False)
+        assert len(root.handlers) == 1
+        # Formatter-less => the journal gets a clean message + PRIORITY, not
+        # "LEVEL:name:message" (the basicConfig(handlers=...) trap).
+        assert root.handlers[0].formatter is None
+    finally:
+        root.handlers[:] = saved
+        root.setLevel(saved_level)
