@@ -9,7 +9,7 @@ MQTT-драйвер Wiren Board для приводов штор и жалюзи
 ## Состав
 
 - `Jenkinsfile` — сборка на WB Jenkins (`buildDebArchAll`, пакет `arch: all`).
-- `setup.py` + `wb_dauerhaft_pro/` — Python-пакет (собирается через pybuild).
+- `setup.py` + `wb/dauerhaft_pro/` — Python-пакет (неймспейс `wb.`, собирается через pybuild).
 - `debian/` — метаданные пакета (`control`, `rules`, `changelog`, `install`, …).
 - `configs/wb-dauerhaft-pro.schema.json` — схема для wb-mqtt-confed; создаёт
   страницу конфигурации в веб-интерфейсе.

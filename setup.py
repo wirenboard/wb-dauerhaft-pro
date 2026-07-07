@@ -16,5 +16,8 @@ setup(
     description="Wiren Board MQTT driver for Dauerhaft PRO RS-485 actuators",
     url="https://github.com/wirenboard/wb-dauerhaft-pro",
     license="MIT",
-    packages=["wb_dauerhaft_pro"],
+    packages=[
+        # "wb" is a namespace package (provided by python3-wb-common); not shipped here
+        "wb.dauerhaft_pro",
+    ],
 )
