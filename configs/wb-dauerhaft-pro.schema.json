@@ -5,5 +5,137 @@
     "configFile": {
         "path": "/etc/wb-dauerhaft-pro.conf"
     },
-    "properties": {}
+    "definitions": {
+        "device": {
+            "type": "object",
+            "title": "Привод",
+            "headerTemplate": "{{self.title}}",
+            "properties": {
+                "mqtt_id": {
+                    "type": "string",
+                    "title": "Идентификатор устройства в MQTT",
+                    "pattern": "^[^$#+/]+$",
+                    "minLength": 1,
+                    "propertyOrder": 1,
+                    "options": {
+                        "patternmessage": "Недопустимый идентификатор"
+                    }
+                },
+                "title": {
+                    "type": "string",
+                    "title": "Название",
+                    "description": "Отображаемое название устройства в веб-интерфейсе",
+                    "minLength": 1,
+                    "propertyOrder": 2
+                },
+                "curtain_type": {
+                    "type": "string",
+                    "title": "Тип шторы",
+                    "enum": ["roller", "sliding"],
+                    "default": "roller",
+                    "propertyOrder": 3,
+                    "options": {
+                        "enum_titles": ["Рулонная штора", "Раздвижная штора (карниз)"]
+                    }
+                },
+                "learning_type": {
+                    "type": "string",
+                    "title": "Тип обучения",
+                    "enum": ["physical_button", "bus_command"],
+                    "default": "physical_button",
+                    "propertyOrder": 4,
+                    "options": {
+                        "enum_titles": ["Физической кнопкой на приводе", "Командой через виджет"]
+                    }
+                },
+                "address": {
+                    "type": "integer",
+                    "title": "Адрес на шине RS-485",
+                    "minimum": 1,
+                    "maximum": 255,
+                    "propertyOrder": 5
+                },
+                "port": {
+                    "type": "string",
+                    "title": "Порт RS-485",
+                    "description": "Выбранный порт должен быть настроен согласно инструкции производителя",
+                    "enum": [
+                        "/dev/ttyRS485-1",
+                        "/dev/ttyRS485-2",
+                        "/dev/ttyMOD1",
+                        "/dev/ttyMOD2",
+                        "/dev/ttyMOD3",
+                        "/dev/ttyMOD4"
+                    ],
+                    "default": "/dev/ttyRS485-2",
+                    "propertyOrder": 6
+                },
+                "baud_rate": {
+                    "type": "integer",
+                    "title": "Скорость, бод",
+                    "enum": [4800, 9600, 19200, 115200],
+                    "default": 9600,
+                    "propertyOrder": 7
+                },
+                "parity": {
+                    "type": "string",
+                    "title": "Чётность",
+                    "enum": ["N", "E", "O"],
+                    "default": "N",
+                    "propertyOrder": 8,
+                    "options": {
+                        "enum_titles": ["Нет", "Чётный (even)", "Нечётный (odd)"]
+                    }
+                },
+                "stop_bits": {
+                    "type": "integer",
+                    "title": "Стоп-биты",
+                    "enum": [1, 2],
+                    "default": 1,
+                    "propertyOrder": 9
+                }
+            },
+            "required": ["mqtt_id", "title", "curtain_type", "learning_type", "address", "port"],
+            "options": {
+                "disable_collapse": true,
+                "disable_edit_json": true
+            }
+        }
+    },
+    "properties": {
+        "devices": {
+            "type": "array",
+            "title": "Приводы",
+            "items": {
+                "$ref": "#/definitions/device"
+            },
+            "_format": "tabs",
+            "propertyOrder": 1,
+            "options": {
+                "array_controls_top": true,
+                "disable_array_delete_last_row": true,
+                "disable_array_reorder": true,
+                "enable_array_copy": true,
+                "disable_collapse": true
+            }
+        },
+        "liveness_interval_s": {
+            "type": "number",
+            "title": "Интервал проверки связи, с",
+            "default": 5,
+            "minimum": 1,
+            "propertyOrder": 2
+        },
+        "debug": {
+            "type": "boolean",
+            "title": "Отладочный лог",
+            "default": false,
+            "_format": "checkbox",
+            "propertyOrder": 3
+        }
+    },
+    "required": ["devices"],
+    "options": {
+        "disable_collapse": true
+    }
 }
