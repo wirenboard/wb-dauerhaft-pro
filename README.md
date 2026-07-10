@@ -14,7 +14,7 @@ MQTT-драйвер Wiren Board для приводов штор и жалюзи
 - `configs/wb-dauerhaft-pro.schema.json` — схема для wb-mqtt-confed; создаёт
   страницу конфигурации в веб-интерфейсе.
 - `configs/wb-dauerhaft-pro.conf` — конфигурация по умолчанию (пустой список приводов).
-- `configs/10wb-dauerhaft-pro` — файл wb-configs (`wb_move`): правки конфигурации
+- `10wb-dauerhaft-pro` — файл wb-configs (`wb_move`): правки конфигурации
   переживают обновление прошивки и factory reset.
 
 ## Сборка

@@ -7,4 +7,4 @@ configs/wb-dauerhaft-pro.schema.json /usr/share/wb-mqtt-confed/schemas
 configs/wb-dauerhaft-pro.conf /etc/
 
 # Keep user edits across firmware updates and factory resets (wb-configs)
-configs/10wb-dauerhaft-pro /etc/wb-configs.d
+10wb-dauerhaft-pro /etc/wb-configs.d
