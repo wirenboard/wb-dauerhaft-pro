@@ -74,7 +74,8 @@
             "required": ["mqtt_id", "title", "curtain_type", "learning_type", "address", "port"],
             "options": {
                 "disable_collapse": true,
-                "disable_edit_json": true
+                "disable_edit_json": true,
+                "disable_properties": true
             }
         }
     },
