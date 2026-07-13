@@ -70,29 +70,42 @@
                     "default": "/dev/ttyRS485-2",
                     "propertyOrder": 6
                 },
-                "baud_rate": {
-                    "type": "integer",
-                    "title": "Скорость, бод",
-                    "enum": [4800, 9600, 19200, 115200],
-                    "default": 9600,
-                    "propertyOrder": 7
-                },
-                "parity": {
-                    "type": "string",
-                    "title": "Чётность",
-                    "enum": ["N", "E", "O"],
-                    "default": "N",
-                    "propertyOrder": 8,
+                "serial": {
+                    "type": "object",
+                    "title": "Настройки порта RS-485",
+                    "propertyOrder": 7,
+                    "properties": {
+                        "baud_rate": {
+                            "type": "integer",
+                            "title": "Скорость, бод",
+                            "enum": [4800, 9600, 19200, 115200],
+                            "default": 9600,
+                            "propertyOrder": 1
+                        },
+                        "parity": {
+                            "type": "string",
+                            "title": "Чётность",
+                            "enum": ["N", "E", "O"],
+                            "default": "N",
+                            "propertyOrder": 2,
+                            "options": {
+                                "enum_titles": ["Нет", "Чётный (even)", "Нечётный (odd)"]
+                            }
+                        },
+                        "stop_bits": {
+                            "type": "integer",
+                            "title": "Стоп-биты",
+                            "enum": [1, 2],
+                            "default": 1,
+                            "propertyOrder": 3
+                        }
+                    },
+                    "required": ["baud_rate", "parity", "stop_bits"],
                     "options": {
-                        "enum_titles": ["Нет", "Чётный (even)", "Нечётный (odd)"]
+                        "disable_collapse": true,
+                        "disable_edit_json": true,
+                        "disable_properties": true
                     }
-                },
-                "stop_bits": {
-                    "type": "integer",
-                    "title": "Стоп-биты",
-                    "enum": [1, 2],
-                    "default": 1,
-                    "propertyOrder": 9
                 }
             },
             "required": ["mqtt_id", "title", "curtain_type", "learning_type", "address", "port"],
