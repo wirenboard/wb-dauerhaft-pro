@@ -105,12 +105,9 @@
         "debug": {
             "type": "boolean",
             "title": "Включить отладочные сообщения",
-            "enum": [true, false],
             "default": false,
-            "propertyOrder": 3,
-            "options": {
-                "enum_titles": ["Да", "Нет"]
-            }
+            "_format": "checkbox",
+            "propertyOrder": 3
         }
     },
     "required": ["devices"],
