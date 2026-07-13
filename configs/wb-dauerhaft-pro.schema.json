@@ -45,7 +45,7 @@
                     "default": "physical_button",
                     "propertyOrder": 4,
                     "options": {
-                        "enum_titles": ["Физической кнопкой на приводе", "Командой через виджет"]
+                        "enum_titles": ["Кнопкой на приводе", "Командой через виджет"]
                     }
                 },
                 "address": {
