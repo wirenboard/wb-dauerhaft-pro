@@ -20,4 +20,5 @@ setup(
         # "wb" is a namespace package (provided by python3-wb-common); not shipped here
         "wb.dauerhaft_pro",
     ],
+    scripts=["bin/wb-dauerhaft-pro"],
 )

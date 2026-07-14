@@ -1,0 +1,14 @@
+# Code-style configuration matching wirenboard/codestyle (used by CI's Python
+# Checks). No [build-system] section on purpose: pybuild must keep using
+# setup.py.
+
+[tool.black]
+line-length = 110
+target-version = ["py38"]
+
+[tool.isort]
+profile = "black"
+line_length = 110
+# Pin the first-party classification: CI and dev boxes otherwise disagree on
+# whether "wb" is first- or third-party, flipping the import order.
+known_first_party = ["wb"]
