@@ -1,14 +1,14 @@
 {
     "$schema": "http://json-schema.org/draft-04/schema#",
     "type": "object",
-    "title": "service_title",
+    "title": "dauerhaft_title",
     "configFile": {
         "path": "/etc/wb-dauerhaft-pro.conf"
     },
     "definitions": {
         "device": {
             "type": "object",
-            "title": "actuator_title",
+            "title": "Actuator",
             "headerTemplate": "{{self.device_title}}",
             "properties": {
                 "device_id": {
@@ -82,7 +82,7 @@
     "properties": {
         "devices": {
             "type": "array",
-            "title": "actuators_title",
+            "title": "Actuators",
             "items": {
                 "$ref": "#/definitions/device"
             },
@@ -117,9 +117,7 @@
     },
     "translations": {
         "en": {
-            "service_title": "Dauerhaft PRO Driver",
-            "actuators_title": "Actuators",
-            "actuator_title": "Actuator",
+            "dauerhaft_title": "Dauerhaft PRO Driver",
             "device_id_title": "MQTT Device ID",
             "device_id_pattern_message": "Invalid Device ID",
             "device_name_title": "Device Name",
@@ -137,9 +135,9 @@
             "debug_title": "Enable Debug Logging"
         },
         "ru": {
-            "service_title": "Драйвер Dauerhaft PRO",
-            "actuators_title": "Приводы",
-            "actuator_title": "Привод",
+            "dauerhaft_title": "Драйвер Dauerhaft PRO",
+            "Actuators": "Приводы",
+            "Actuator": "Привод",
             "device_id_title": "Идентификатор устройства в MQTT",
             "device_id_pattern_message": "Недопустимый идентификатор",
             "device_name_title": "Название",
