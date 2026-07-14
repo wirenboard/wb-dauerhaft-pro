@@ -9,7 +9,7 @@
         "device": {
             "type": "object",
             "title": "Actuator",
-            "headerTemplate": "{{self.device_title}}",
+            "headerTemplate": "{{self.device_name}}",
             "properties": {
                 "device_id": {
                     "type": "string",
@@ -21,7 +21,7 @@
                         "patternmessage": "device_id_pattern_message"
                     }
                 },
-                "device_title": {
+                "device_name": {
                     "type": "string",
                     "title": "device_name_title",
                     "description": "device_name_description",
@@ -71,7 +71,7 @@
                     "propertyOrder": 6
                 }
             },
-            "required": ["device_id", "device_title", "curtain_type", "learning_type", "rs485_address", "port"],
+            "required": ["device_id", "device_name", "curtain_type", "learning_type", "rs485_address", "port"],
             "options": {
                 "disable_collapse": true,
                 "disable_edit_json": true,
