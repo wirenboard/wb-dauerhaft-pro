@@ -1,64 +1,64 @@
 {
     "$schema": "http://json-schema.org/draft-04/schema#",
     "type": "object",
-    "title": "Dauerhaft PRO Driver",
+    "title": "service_title",
     "configFile": {
         "path": "/etc/wb-dauerhaft-pro.conf"
     },
     "definitions": {
         "device": {
             "type": "object",
-            "title": "Actuator",
+            "title": "actuator_title",
             "headerTemplate": "{{self.device_title}}",
             "properties": {
                 "device_id": {
                     "type": "string",
-                    "title": "MQTT Device ID",
+                    "title": "device_id_title",
                     "pattern": "^[^$#+/]+$",
                     "minLength": 1,
                     "propertyOrder": 1,
                     "options": {
-                        "patternmessage": "Invalid Device ID"
+                        "patternmessage": "device_id_pattern_message"
                     }
                 },
                 "device_title": {
                     "type": "string",
-                    "title": "Device Name",
-                    "description": "Displayed device name in the Wiren Board panel",
+                    "title": "device_name_title",
+                    "description": "device_name_description",
                     "minLength": 1,
                     "propertyOrder": 2
                 },
                 "curtain_type": {
                     "type": "string",
-                    "title": "Curtain Type",
+                    "title": "curtain_type_title",
                     "enum": ["roller", "sliding"],
                     "default": "roller",
                     "propertyOrder": 3,
                     "options": {
-                        "enum_titles": ["Roller Curtain", "Sliding Curtain (Rail)"]
+                        "enum_titles": ["curtain_type_roller", "curtain_type_sliding"]
                     }
                 },
                 "learning_type": {
                     "type": "string",
-                    "title": "Learning Type",
+                    "title": "learning_type_title",
                     "enum": ["physical_button", "bus_command"],
                     "default": "physical_button",
                     "propertyOrder": 4,
                     "options": {
-                        "enum_titles": ["Button on the Actuator", "Widget Command"]
+                        "enum_titles": ["learning_type_button", "learning_type_widget"]
                     }
                 },
                 "rs485_address": {
                     "type": "integer",
-                    "title": "RS-485 Bus Address",
+                    "title": "rs485_address_title",
                     "minimum": 1,
                     "maximum": 255,
                     "propertyOrder": 5
                 },
                 "port": {
                     "type": "string",
-                    "title": "RS-485 Port",
-                    "description": "The selected port must be set up according to the curtain actuator manufacturer's instructions",
+                    "title": "port_title",
+                    "description": "port_description",
                     "enum": [
                         "/dev/ttyRS485-1",
                         "/dev/ttyRS485-2",
@@ -82,7 +82,7 @@
     "properties": {
         "devices": {
             "type": "array",
-            "title": "Actuators",
+            "title": "actuators_title",
             "items": {
                 "$ref": "#/definitions/device"
             },
@@ -98,14 +98,14 @@
         },
         "liveness_interval_ms": {
             "type": "integer",
-            "title": "Connection Check Interval, ms",
+            "title": "liveness_interval_title",
             "default": 5000,
             "minimum": 100,
             "propertyOrder": 2
         },
         "debug": {
             "type": "boolean",
-            "title": "Enable Debug Logging",
+            "title": "debug_title",
             "default": false,
             "_format": "checkbox",
             "propertyOrder": 3
@@ -116,25 +116,45 @@
         "disable_collapse": true
     },
     "translations": {
+        "en": {
+            "service_title": "Dauerhaft PRO Driver",
+            "actuators_title": "Actuators",
+            "actuator_title": "Actuator",
+            "device_id_title": "MQTT Device ID",
+            "device_id_pattern_message": "Invalid Device ID",
+            "device_name_title": "Device Name",
+            "device_name_description": "Displayed device name in the Wiren Board panel",
+            "curtain_type_title": "Curtain Type",
+            "curtain_type_roller": "Roller Curtain",
+            "curtain_type_sliding": "Sliding Curtain (Rail)",
+            "learning_type_title": "Learning Type",
+            "learning_type_button": "Button on the Actuator",
+            "learning_type_widget": "Widget Command",
+            "rs485_address_title": "RS-485 Bus Address",
+            "port_title": "RS-485 Port",
+            "port_description": "The selected port must be set up according to the curtain actuator manufacturer's instructions",
+            "liveness_interval_title": "Connection Check Interval, ms",
+            "debug_title": "Enable Debug Logging"
+        },
         "ru": {
-            "Dauerhaft PRO Driver": "Драйвер Dauerhaft PRO",
-            "Actuators": "Приводы",
-            "Actuator": "Привод",
-            "MQTT Device ID": "Идентификатор устройства в MQTT",
-            "Invalid Device ID": "Недопустимый идентификатор",
-            "Device Name": "Название",
-            "Displayed device name in the Wiren Board panel": "Отображаемое название устройства в панели Wiren Board",
-            "Curtain Type": "Тип шторы",
-            "Roller Curtain": "Рулонная штора",
-            "Sliding Curtain (Rail)": "Раздвижная штора (карниз)",
-            "Learning Type": "Тип обучения",
-            "Button on the Actuator": "Кнопкой на приводе",
-            "Widget Command": "Командой через виджет",
-            "RS-485 Bus Address": "Адрес на шине RS-485",
-            "RS-485 Port": "Порт RS-485",
-            "The selected port must be set up according to the curtain actuator manufacturer's instructions": "Выбранный порт должен быть настроен согласно инструкции производителя привода штор",
-            "Connection Check Interval, ms": "Интервал проверки связи, мс",
-            "Enable Debug Logging": "Включить отладочные сообщения"
+            "service_title": "Драйвер Dauerhaft PRO",
+            "actuators_title": "Приводы",
+            "actuator_title": "Привод",
+            "device_id_title": "Идентификатор устройства в MQTT",
+            "device_id_pattern_message": "Недопустимый идентификатор",
+            "device_name_title": "Название",
+            "device_name_description": "Отображаемое название устройства в панели Wiren Board",
+            "curtain_type_title": "Тип шторы",
+            "curtain_type_roller": "Рулонная штора",
+            "curtain_type_sliding": "Раздвижная штора (карниз)",
+            "learning_type_title": "Тип обучения",
+            "learning_type_button": "Кнопкой на приводе",
+            "learning_type_widget": "Командой через виджет",
+            "rs485_address_title": "Адрес на шине RS-485",
+            "port_title": "Порт RS-485",
+            "port_description": "Выбранный порт должен быть настроен согласно инструкции производителя привода штор",
+            "liveness_interval_title": "Интервал проверки связи, мс",
+            "debug_title": "Включить отладочные сообщения"
         }
     }
 }
