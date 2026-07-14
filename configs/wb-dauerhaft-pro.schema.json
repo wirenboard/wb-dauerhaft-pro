@@ -41,7 +41,7 @@
                 "learning_type": {
                     "type": "string",
                     "title": "learning_type_title",
-                    "enum": ["physical_button", "bus_command"],
+                    "enum": ["physical_button", "widget_command"],
                     "default": "physical_button",
                     "propertyOrder": 4,
                     "options": {
@@ -96,9 +96,9 @@
                 "disable_collapse": true
             }
         },
-        "liveness_interval_ms": {
+        "connection_check_interval_ms": {
             "type": "integer",
-            "title": "liveness_interval_title",
+            "title": "connection_check_interval_title",
             "default": 5000,
             "minimum": 100,
             "propertyOrder": 2
@@ -131,7 +131,7 @@
             "rs485_address_title": "RS-485 Bus Address",
             "port_title": "RS-485 Port",
             "port_description": "The selected port must be set up according to the curtain actuator manufacturer's instructions",
-            "liveness_interval_title": "Connection Check Interval, ms",
+            "connection_check_interval_title": "Connection Check Interval, ms",
             "debug_title": "Enable Debug Logging"
         },
         "ru": {
@@ -151,7 +151,7 @@
             "rs485_address_title": "Адрес на шине RS-485",
             "port_title": "Порт RS-485",
             "port_description": "Выбранный порт должен быть настроен согласно инструкции производителя привода штор",
-            "liveness_interval_title": "Интервал проверки связи, мс",
+            "connection_check_interval_title": "Интервал проверки связи, мс",
             "debug_title": "Включить отладочные сообщения"
         }
     }
