@@ -5,6 +5,7 @@ Maintainer: Wiren Board Team <info@wirenboard.com>
 Build-Depends: debhelper-compat (= 11),
                dh-python,
                python3-all,
+               python3-mqttrpc,
                python3-pytest,
                python3-setuptools
 Standards-Version: 4.5.1
@@ -17,7 +18,8 @@ Package: wb-dauerhaft-pro
 Section: python
 Architecture: all
 Depends: ${misc:Depends},
-         ${python3:Depends}
+         ${python3:Depends},
+         python3-mqttrpc
 Description: Wiren Board MQTT driver for Dauerhaft PRO RS-485 actuators
  Package skeleton: builds via Jenkins and ships a wb-mqtt-confed schema.
  The actuator driver itself is added in later changes.
