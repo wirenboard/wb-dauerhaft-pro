@@ -37,3 +37,21 @@ python3 -m pytest tests/
 | Функция | Что проверяет |
 |---|---|
 | `test_offline_only_after_consecutive_misses` | доступность падает ровно после 3 промахов подряд; один-два промаха её не роняют |
+
+### `tests/test_config.py`
+
+Чтение конфига (`wb/dauerhaft_pro/config.py`).
+
+| Функция | Что проверяет |
+|---|---|
+| `test_config_parses_with_unit_conversion` | поля устройства читаются корректно, интервал из мс в конфиге превращается в секунды |
+| `test_duplicate_device_id_rejected` | два одинаковых `device_id` → `ConfigError` (проверка, которую схема выразить не может) |
+
+### `tests/test_mqtt.py`
+
+MQTT-обвязка (`wb/dauerhaft_pro/mqtt.py`).
+
+| Функция | Что проверяет |
+|---|---|
+| `test_unchanged_retained_values_are_not_republished` | неизменённые retained-значения не публикуются повторно; изменённые уходят с retain |
+| `test_republish_restores_every_topic` | `republish()` переиздаёт все retained-топики устройства (восстановление после рестарта брокера) |

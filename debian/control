@@ -19,6 +19,7 @@ Section: python
 Architecture: all
 Depends: ${misc:Depends},
          ${python3:Depends},
+         python3-jsonschema,
          python3-mqttrpc
 Description: Wiren Board MQTT driver for Dauerhaft PRO RS-485 actuators
  Package skeleton: builds via Jenkins and ships a wb-mqtt-confed schema.
