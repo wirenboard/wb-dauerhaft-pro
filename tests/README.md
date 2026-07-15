@@ -22,3 +22,18 @@ python3 -m pytest tests/
   привода, кадр ошибки, неизвестная функция, кадр с пустыми данными;
 - режимы ошибок разбора: пакет короче минимума, короче заявленного байтом
   длины, длиннее заявленного (обрезается с предупреждением), повреждённый CRC.
+
+Состав:
+
+| Функция | Что проверяет |
+|---|---|
+| `test_builders_match_captured_requests` | сборка каждого запроса байт-в-байт (2 пинга, вверх/вниз/стоп, смена адреса) |
+| `test_captured_replies_decode` | разбор записанных ответов (2 пинга, эхо команды, ack смены адреса, активный отчёт) |
+| `test_set_address_nack_decodes_not_ok` | отказ смены адреса: статус ≠ 0x0A → `ok=False` |
+| `test_error_response_decodes` | кадр ошибки (функция 0x00) |
+| `test_unknown_function_raises` | неизвестный код функции → `ProtocolError` |
+| `test_build_parse_round_trip` | сборка↔разбор, свойство `subcommand` |
+| `test_empty_data_frame_decodes_gracefully` | пустые данные: `subcommand is None`, декодеры не падают |
+| `test_truncated_frames_raise_frame_error` | короче минимума / короче заявленного |
+| `test_frame_longer_than_declared_is_trimmed` | хвостовой мусор обрезается с предупреждением |
+| `test_corrupted_frames_raise_crc_error` | битый байт / битый байт + мусорный хвост |
