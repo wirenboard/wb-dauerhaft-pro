@@ -1,6 +1,8 @@
 # Python package is installed by pybuild (see setup.py).
 # Non-Python files go here:
 
+bin/wb-dauerhaft-pro /usr/bin
+
 configs/wb-dauerhaft-pro.schema.json /usr/share/wb-mqtt-confed/schemas
 
 # Default config — wb-mqtt-confed needs the file to exist to open the editor

@@ -3,7 +3,8 @@
     "type": "object",
     "title": "dauerhaft_title",
     "configFile": {
-        "path": "/etc/wb-dauerhaft-pro.conf"
+        "path": "/etc/wb-dauerhaft-pro.conf",
+        "service": "wb-dauerhaft-pro"
     },
     "definitions": {
         "device": {
