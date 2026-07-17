@@ -134,6 +134,8 @@ class Actuator:
         frame that does not match the request (a stray or delayed frame from
         another device, or an unsolicited active report, on the shared bus).
         """
+        if len(request) < 2:  # guard the request[1] access below
+            raise ValueError("invalid request frame: too short (need at least address + function)")
         expect_address = self.cfg.address if expect_address is None else expect_address
         request_func = request[1]
         try:
@@ -188,6 +190,9 @@ class Actuator:
         # rejected the command — surface it instead of silently ignoring it.
         if isinstance(resp, protocol.ErrorResponse):
             logger.warning("%s: device error response, code 0x%02X", self.cfg.device_id, resp.code)
+        if not self.online:
+            # visible at the default log level, symmetric to the offline warning
+            logger.warning("%s: back online", self.cfg.device_id)
         self._miss_count = 0
         self.online = True
         return resp
@@ -195,8 +200,12 @@ class Actuator:
     def _register_miss(self):
         """
         Count a missed exchange; go offline only after OFFLINE_AFTER_MISSES in a row.
+
+        The counter is clamped at the threshold, so a long outage does not grow
+        it unbounded; any successful exchange resets it to zero.
         """
-        self._miss_count += 1
+        if self._miss_count < OFFLINE_AFTER_MISSES:
+            self._miss_count += 1
         if self._miss_count >= OFFLINE_AFTER_MISSES and self.online:
             # Individual stray-frame misses are only logged at DEBUG, so the
             # transition itself must be visible at the default log level.
