@@ -6,13 +6,17 @@ uses an injected transport (:class:`~wb.dauerhaft_pro.transport.SerialTransport`
 or a test fake) to talk to the device.
 
 Supported operations:
-  * :meth:`up` / :meth:`down` / :meth:`stop` — drive the motor;
-  * :meth:`set_address` — change the device's RS-485 address;
+  * :meth:`up` / :meth:`down` / :meth:`stop` / :meth:`set_angle_raw` /
+    :meth:`go_third_point` / :meth:`set_third_point` — drive the motor;
+  * :meth:`query_position` / :meth:`query_angle_raw` — read the state;
+  * :meth:`set_address` / :meth:`set_address_broadcast` /
+    :meth:`set_address_learning` — change an RS-485 address;
   * :meth:`ping` — read the device address, used as a liveness probe.
 """
 
 import logging
 from dataclasses import dataclass
+from typing import Optional
 
 from . import protocol
 from .transport import DeviceTimeout, PortConfig, TransportError
@@ -26,9 +30,14 @@ logger = logging.getLogger(__name__)
 # derived from the request.
 RESP_SIZE = 7
 
-# Changing the address writes the device's flash and answers slower than a plain
-# move; the vendor driver allows several seconds for such operations.
-ADDRESS_TIMEOUT_MS = 5000
+# Changing the address or storing the waypoint writes the device's flash and
+# answers slower than a plain move; the vendor driver allows several seconds.
+FLASH_TIMEOUT_MS = 5000
+
+# expect_address value that accepts a reply from any bus address — for the
+# broadcast/learning address writes, where the answering motor's address is not
+# known in advance (the vendor driver disables its filter the same way).
+ANY_ADDRESS = -1
 
 # Mark a device offline only after this many consecutive missed exchanges, so a
 # single transient RS-485 glitch — e.g. a collision with a chatty device's active
@@ -44,6 +53,7 @@ class ActuatorConfig:
     learning_type: str
     address: int
     port: PortConfig
+    slat_angle_mode: str = "none"  # none (no slat controls) | direct | compressed
 
 
 class Actuator:
@@ -78,6 +88,47 @@ class Actuator:
         """
         self._exchange(protocol.control_stop(self.cfg.address))
 
+    def set_angle_raw(self, raw_angle: int):
+        """
+        Rotate the slats to a raw wire byte (scale conversion is the caller's job).
+        """
+        self._exchange(protocol.control_angle(self.cfg.address, raw_angle))
+
+    def go_third_point(self):
+        """
+        Drive to the stored waypoint; warns when the motor has none stored.
+        """
+        resp = self._exchange(protocol.control_third_point(self.cfg.address))
+        if isinstance(resp, protocol.ControlResponse) and resp.value == protocol.THIRD_POINT_UNSET:
+            logger.warning("%s: no waypoint is stored in the motor", self.cfg.device_id)
+
+    def set_third_point(self):
+        """
+        Store the current position as the waypoint (writes the motor's flash).
+        """
+        self._exchange(
+            protocol.set_third_point(self.cfg.address),
+            response_timeout_ms=FLASH_TIMEOUT_MS,
+            total_timeout_ms=FLASH_TIMEOUT_MS,
+        )
+
+    # ------------------------------------------------------------------ #
+    # state queries
+    # ------------------------------------------------------------------ #
+    def query_position(self) -> Optional[int]:
+        """
+        Read the position: 0..100, a limits-unset marker, or None when silent.
+        """
+        resp = self._exchange(protocol.query_position(self.cfg.address))
+        return resp.value if isinstance(resp, protocol.QueryResponse) else None
+
+    def query_angle_raw(self) -> Optional[int]:
+        """
+        Read the raw slat angle byte; None when silent or refused (error reply).
+        """
+        resp = self._exchange(protocol.query_angle(self.cfg.address))
+        return resp.value if isinstance(resp, protocol.QueryResponse) else None
+
     # ------------------------------------------------------------------ #
     # address
     # ------------------------------------------------------------------ #
@@ -90,25 +141,56 @@ class Actuator:
         config follows the new address so control keeps working, and a warning is
         logged — the on-disk config must be updated to persist it.
         """
+        return self._change_address(self.cfg.address, new_address, follow=True)
+
+    def set_address_broadcast(self, new_address: int) -> bool:
+        """
+        Address EVERY motor on the bus at once (frame to the broadcast address).
+
+        Safe only with a single motor connected. This actuator's own runtime
+        address is deliberately not touched: the ack proves some motor took the
+        address, not that it was this one — the config is the source of truth.
+        """
+        return self._change_address(protocol.BROADCAST_ADDRESS, new_address, follow=False)
+
+    def set_address_learning(self, new_address: int) -> bool:
+        """
+        Address the one motor whose button opened its ~1 min learning window.
+
+        The only safe way to address motors on a shared bus; times out when no
+        motor is in learning mode. The runtime address is not touched (see
+        :meth:`set_address_broadcast`).
+        """
+        return self._change_address(protocol.LEARNING_ADDRESS, new_address, follow=False)
+
+    def _change_address(self, target_address: int, new_address: int, follow: bool) -> bool:
+        """
+        Send a set-address frame to *target_address* and confirm the ack.
+
+        *follow* (unicast only) makes the runtime config track the new address.
+        """
         if new_address == protocol.BROADCAST_ADDRESS:
             raise ValueError("refusing to assign address 0 (broadcast/universal)")
         if not 1 <= new_address <= 0xFF:
             raise ValueError("address must be 1..255")
-
         resp = self._exchange(
-            protocol.set_address(self.cfg.address, new_address),
-            expect_address=new_address,  # spec 3.1: the ack comes FROM the new address
-            response_timeout_ms=ADDRESS_TIMEOUT_MS,
-            total_timeout_ms=ADDRESS_TIMEOUT_MS,
+            protocol.set_address(target_address, new_address),
+            # Spec 3.1: the ack comes FROM the new address. For broadcast/learning
+            # a refusal may come from an arbitrary current address instead, so the
+            # address filter is off there (the vendor driver does the same).
+            expect_address=new_address if follow else ANY_ADDRESS,
+            response_timeout_ms=FLASH_TIMEOUT_MS,
+            total_timeout_ms=FLASH_TIMEOUT_MS,
         )
         if isinstance(resp, protocol.SetAddressResponse) and resp.ok:
             logger.warning(
-                "%s: address changed 0x%02X -> 0x%02X; UPDATE THE CONFIG to persist it",
+                "%s: address write 0x%02X -> 0x%02X acknowledged; UPDATE THE CONFIG to persist it",
                 self.cfg.device_id,
-                self.cfg.address,
+                target_address,
                 new_address,
             )
-            self.cfg.address = new_address  # follow at runtime so control keeps working
+            if follow:
+                self.cfg.address = new_address  # follow at runtime so control keeps working
             return True
         logger.warning("%s: address change to 0x%02X failed/unconfirmed", self.cfg.device_id, new_address)
         return False
@@ -170,10 +252,10 @@ class Actuator:
         # else — a stray/delayed reply from another device or an unsolicited active
         # report (0x08) — is not our answer, so count it as a miss (subject to
         # hysteresis) rather than trusting it.
-        is_reply = frame.address == expect_address and frame.function == request_func
-        is_error_report = frame.function == protocol.Function.ERROR and frame.address in (
-            self.cfg.address,
-            expect_address,
+        address_ok = expect_address == ANY_ADDRESS or frame.address == expect_address
+        is_reply = address_ok and frame.function == request_func
+        is_error_report = frame.function == protocol.Function.ERROR and (
+            expect_address == ANY_ADDRESS or frame.address in (self.cfg.address, expect_address)
         )
         if not (is_reply or is_error_report):
             logger.debug(

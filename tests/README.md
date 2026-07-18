@@ -37,3 +37,15 @@ python3 -m pytest tests/
 | Функция | Что проверяет |
 |---|---|
 | `test_offline_only_after_consecutive_misses` | доступность падает ровно после 3 промахов подряд; один-два промаха её не роняют |
+
+### `tests/test_commands.py`
+
+Командный слой (`wb/dauerhaft_pro/commands.py`): очередь и кадры команд.
+
+| Функция | Что проверяет |
+|---|---|
+| `test_stop_cancels_queued_movement_and_runs_first` | стоп уходит первым и отменяет команду движения, ждавшую в очереди |
+| `test_new_movement_replaces_the_queued_one` | новое движение заменяет старое в очереди; чужие ключи не трогает |
+| `test_angle_scales_round_trip` | пересчёт градусов в сырой байт и обратно для прямой и сжатой шкалы |
+| `test_command_frames_match_the_controls_table` | кадры угла/точки/запросов байт в байт совпадают с таблицей контролов |
+| `test_learning_frame_goes_to_the_learning_address` | learning-запись адреса уходит на служебный адрес 0xFF |
