@@ -15,7 +15,6 @@ button-learning write.
 
 import logging
 import threading
-import time
 
 from . import protocol
 
@@ -25,9 +24,15 @@ PRIO_STOP = 0
 PRIO_MOVE = 1
 PRIO_SETTING = 2
 
-# Motors ignore the bus for 0.5..1.2 s after a broadcast address write while
-# they store it; hold our own polling off for the worst case (vendor value).
-BROADCAST_HOLD_S = 1.2
+# The highest address assignable to a motor: 0x00 is broadcast and 0xFF is the
+# learning-window service address — a motor stored at either would collide with
+# the bus-wide addressing mechanisms this module exposes.
+MAX_ASSIGNABLE_ADDRESS = 0xFE
+
+# Whether the wire scale is compressed, per the config's slat_angle_mode. A
+# lookup instead of string comparisons: an unknown mode fails at startup here,
+# whatever the config loader let through.
+_SCALE_COMPRESSED = {"none": False, "direct": False, "compressed": True}
 
 # Human-readable texts for the position markers (values are not translated by
 # the web UI, so they are English-only like every other published value).
@@ -36,6 +41,23 @@ _LIMIT_MARKERS = {
     protocol.POSITION_LOWER_LIMIT_UNSET: "bottom limit not set",
     protocol.POSITION_UPPER_LIMIT_UNSET: "top limit not set",
 }
+
+
+def _fresh_only(handler):
+    """
+    Wrap a command handler to ignore retained messages.
+
+    A command retained on the broker would otherwise replay on every daemon
+    restart — worst case a bus-wide broadcast address write.
+    """
+
+    def wrapped(client, userdata, msg):
+        if msg.retain:
+            logger.warning("ignoring retained command on %s", msg.topic)
+            return
+        handler(client, userdata, msg)
+
+    return wrapped
 
 
 class CommandQueue:
@@ -66,13 +88,19 @@ class CommandQueue:
     def drain(self):
         """
         Run the queued actions in priority order (FIFO within one priority).
+
+        Actions are picked one at a time, so a stop arriving while a slow write
+        runs is executed right after it — not after every queued write.
         """
         self.ready.clear()  # before running, so a put() during a command re-arms it
-        with self._lock:
-            items, self._items = sorted(self._items, key=lambda item: item[:2]), []
-        for _priority, _seq, _key, action in items:
+        while True:
+            with self._lock:
+                if not self._items:
+                    return
+                item = min(self._items, key=lambda entry: entry[:2])
+                self._items.remove(item)
             try:
-                action()
+                item[3]()
             except Exception:  # pylint: disable=broad-except
                 # One failed command must not take the others (or the loop) down.
                 logger.exception("queued command failed")
@@ -94,7 +122,12 @@ class ActuatorControls:
         self._reverse = False
         self._addr_target = act.cfg.address  # last value of the input field
         self._move_key = ("move", act.cfg.device_id)
-        self._compressed = act.cfg.slat_angle_mode == "compressed"
+        try:
+            self._compressed = _SCALE_COMPRESSED[act.cfg.slat_angle_mode]
+        except KeyError:
+            raise ValueError(
+                f"{act.cfg.device_id}: unknown slat_angle_mode {act.cfg.slat_angle_mode!r}"
+            ) from None
 
     def create(self):
         """
@@ -117,7 +150,7 @@ class ActuatorControls:
                 "Сменить адрес на",
                 "Set Address To",
                 self._on_addr_target,
-                {"min_value": 1, "max_value": 255, "initial": self._addr_target},
+                {"min_value": 1, "max_value": MAX_ASSIGNABLE_ADDRESS, "initial": self._addr_target},
             ),
             ("address_set", "pushbutton", 7, "Сменить адрес", "Set Address", self._on_addr_set, button),
             (
@@ -177,7 +210,7 @@ class ActuatorControls:
         for name, control_type, order, ru_title, en_title, handler, extra in rows:
             self._dev.add_control(name, control_type, order, title={"ru": ru_title, "en": en_title}, **extra)
             if handler is not None:
-                self._dev.on_command(name, handler)
+                self._dev.on_command(name, _fresh_only(handler))
 
     def publish_telemetry(self):
         """
@@ -196,7 +229,9 @@ class ActuatorControls:
             return
         raw = self._act.query_angle_raw()
         if raw is not None:
-            degrees = protocol.raw_to_angle(raw, self._compressed)
+            # Clamp: a raw byte outside the scale (e.g. a marker) must not push
+            # an out-of-range value into the 0..180 range control.
+            degrees = max(0, min(protocol.ANGLE_MAX, protocol.raw_to_angle(raw, self._compressed)))
             self._dev.set_value("slat_angle_current", str(degrees))
             self._dev.set_value("slat_angle", str(degrees))
 
@@ -220,6 +255,9 @@ class ActuatorControls:
         self._queue.put(PRIO_SETTING, None, self._act.set_third_point)
 
     def _on_reverse(self, _client, _userdata, msg):
+        if msg.payload not in (b"0", b"1"):
+            logger.warning("ignoring malformed command payload %r on %s", msg.payload[:32], msg.topic)
+            return
         self._reverse = msg.payload == b"1"
         self._dev.set_value("reverse", 1 if self._reverse else 0)
 
@@ -239,28 +277,20 @@ class ActuatorControls:
         # Input field only — remembered and echoed back, no frames sent (the
         # address buttons below apply it), matching the vendor panel.
         target = self._int_payload(msg)
-        if target is None or not 1 <= target <= 255:
+        if target is None or not 1 <= target <= MAX_ASSIGNABLE_ADDRESS:
             return
         self._addr_target = target
         self._dev.set_value("set_address", target)
 
-    def _enqueue_address_write(self, write, hold_s=0.0):
+    def _enqueue_address_write(self, write):
         target = self._addr_target
-
-        def action():
-            write(target)
-            if hold_s:
-                # Motors hold the bus after a broadcast flash write; waiting here
-                # (on the bus-owning thread) keeps the next poll from colliding.
-                time.sleep(hold_s)
-
-        self._queue.put(PRIO_SETTING, None, action)
+        self._queue.put(PRIO_SETTING, None, lambda: write(target))
 
     def _on_addr_set(self, *_):
         self._enqueue_address_write(self._act.set_address)
 
     def _on_addr_broadcast(self, *_):
-        self._enqueue_address_write(self._act.set_address_broadcast, hold_s=BROADCAST_HOLD_S)
+        self._enqueue_address_write(self._act.set_address_broadcast)
 
     def _on_addr_learning(self, *_):
         self._enqueue_address_write(self._act.set_address_learning)
@@ -269,9 +299,14 @@ class ActuatorControls:
     def _int_payload(msg):
         """
         Decode an integer command payload; None (and a log line) when malformed.
+
+        The length cap keeps a huge payload from tying up the MQTT thread in
+        int() and from being dumped into the log.
         """
-        try:
-            return int(msg.payload.decode())
-        except (UnicodeDecodeError, ValueError):
-            logger.warning("ignoring malformed command payload %r on %s", msg.payload, msg.topic)
-            return None
+        if len(msg.payload) <= 8:
+            try:
+                return int(msg.payload.decode())
+            except (UnicodeDecodeError, ValueError):
+                pass
+        logger.warning("ignoring malformed command payload %r on %s", msg.payload[:32], msg.topic)
+        return None

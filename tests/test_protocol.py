@@ -45,3 +45,31 @@ def test_corrupted_byte_raises_crc_error():
     corrupted[3] ^= 0x01
     with pytest.raises(protocol.CrcError, match="CRC mismatch"):
         protocol.parse_frame(bytes(corrupted))
+
+
+def test_angle_scales_round_trip():
+    assert protocol.angle_to_raw(90, compressed=False) == 90
+    assert protocol.angle_to_raw(0, compressed=True) == 36
+    assert protocol.angle_to_raw(180, compressed=True) == 144
+    for degrees in (0, 45, 90, 135, 180):
+        assert protocol.raw_to_angle(protocol.angle_to_raw(degrees, True), True) == degrees
+
+
+@pytest.mark.parametrize(
+    "frame,expected",
+    [
+        (protocol.control_angle(0x0B, 0x2C), "0402042c"),  # slat angle, raw 44
+        (protocol.control_third_point(0x0B), "04020300"),  # go to the waypoint
+        (protocol.set_third_point(0x0B), "020105"),  # store the waypoint
+        (protocol.query_position(0x0B), "010102"),  # read position
+        (protocol.query_angle(0x0B), "010104"),  # read slat angle
+    ],
+)
+def test_command_frames_match_the_controls_table(frame, expected):
+    # The table lists frames as function+length+data, without address and CRC.
+    assert frame[1:-2].hex() == expected
+
+
+def test_learning_frame_goes_to_the_learning_address():
+    frame = protocol.set_address(protocol.LEARNING_ADDRESS, 0x5E)
+    assert frame[0] == 0xFF and frame[1:-2].hex() == "10015e"
