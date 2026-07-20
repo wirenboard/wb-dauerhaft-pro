@@ -3,7 +3,8 @@ Description=Wiren Board Dauerhaft PRO RS-485 driver
 After=mosquitto.service wb-mqtt-serial.service
 
 [Service]
-Type=exec
+Type=simple
+User=root
 ExecStart=/usr/bin/wb-dauerhaft-pro
 Restart=on-failure
 RestartSec=10
