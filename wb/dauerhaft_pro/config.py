@@ -48,6 +48,13 @@ class Config:
 
 
 def _build_entry(raw: dict, index: int) -> ActuatorConfig:
+    """
+    Build one actuator config from a raw device entry.
+
+    Raises :class:`ConfigError` on a missing or invalid field, or a value the
+    schema would reject, so a config that skipped schema validation still fails
+    at startup instead of at the first bus exchange.
+    """
     try:
         entry = ActuatorConfig(
             device_id=raw["device_id"],
