@@ -10,8 +10,13 @@ each entry into an :class:`~wb.dauerhaft_pro.device.ActuatorConfig`.
 
 import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List
+
+try:
+    import jsonschema
+except ImportError:  # absent on a dev box; the package declares it as a hard dependency
+    jsonschema = None
 
 from .device import ActuatorConfig
 from .transport import PortConfig
@@ -32,11 +37,14 @@ class ConfigError(Exception):
 class Config:
     """
     Parsed daemon configuration: global flags plus one entry per actuator.
+
+    No field defaults on purpose: the fallback values live in one place —
+    :func:`load_config` (mirroring the schema defaults) — not in three.
     """
 
-    debug: bool = False
-    check_interval_s: float = 5.0
-    devices: List[ActuatorConfig] = field(default_factory=list)
+    debug: bool
+    check_interval_s: float
+    devices: List[ActuatorConfig]
 
 
 def _build_entry(raw: dict, index: int) -> ActuatorConfig:
@@ -58,7 +66,50 @@ def _build_entry(raw: dict, index: int) -> ActuatorConfig:
     # first exchange.
     if not 1 <= entry.address <= 0xFF:
         raise ConfigError(f"device #{index}: rs485_address must be 1..255, got {entry.address}")
+    # Same reasoning for the id (schema pattern ^[^$#+/]+$): it goes straight
+    # into topic names, so '/' would write into — and on shutdown clear —
+    # another device's topic tree, and '+'/'#' would corrupt the command
+    # subscription filter.
+    bad_id = not isinstance(entry.device_id, str) or not entry.device_id
+    if bad_id or any(char in entry.device_id for char in "$#+/"):
+        raise ConfigError(f"device #{index}: device_id must be a non-empty string without '$ # + /'")
     return entry
+
+
+def _validate_against_schema(raw, path: str, schema_path: str) -> None:
+    """
+    Validate *raw* against the installed confed schema.
+
+    A missing jsonschema module (dev box) or a missing schema file only skip
+    the validation; a schema that is present but broken is a broken
+    installation and refuses startup like any other config problem.
+    """
+    if jsonschema is None:
+        # warning, not debug: on a controller this means a broken installation
+        logger.warning("python3-jsonschema is not installed; skipping config schema validation")
+        return
+    try:
+        with open(schema_path, "r", encoding="utf-8") as sf:
+            schema = json.load(sf)
+    except FileNotFoundError:
+        logger.debug("schema not found at %s, skipping validation", schema_path)
+        return
+    except UnicodeDecodeError as err:
+        raise ConfigError(f"installed schema {schema_path} is not valid UTF-8: {err}") from err
+    except OSError as err:
+        # a present but unreadable schema is a broken installation, not a dev box
+        raise ConfigError(f"cannot read installed schema {schema_path}: {err}") from err
+    except json.JSONDecodeError as err:
+        # a corrupted installed schema must give a clear refusal, not a traceback
+        raise ConfigError(f"installed schema {schema_path} is not valid JSON: {err}") from err
+    try:
+        jsonschema.validate(raw, schema)
+    except jsonschema.SchemaError as err:
+        raise ConfigError(
+            f"installed schema {schema_path} is not a valid JSON Schema: {err.message}"
+        ) from err
+    except jsonschema.ValidationError as err:
+        raise ConfigError(f"{path} failed schema validation: {err.message}") from err
 
 
 def load_config(path: str = CONFIG_PATH, schema_path: str = SCHEMA_PATH) -> Config:
@@ -68,37 +119,24 @@ def load_config(path: str = CONFIG_PATH, schema_path: str = SCHEMA_PATH) -> Conf
     try:
         with open(path, "r", encoding="utf-8") as fh:
             raw = json.load(fh)
+    except UnicodeDecodeError as err:
+        # a hand-edited or backup-restored config saved in a non-UTF-8 encoding
+        # (Cyrillic names are common here) must refuse cleanly, not traceback
+        raise ConfigError(f"{path} is not valid UTF-8: {err}") from err
     except OSError as err:
         raise ConfigError(f"cannot read {path}: {err}") from err
     except json.JSONDecodeError as err:
         raise ConfigError(f"{path} is not valid JSON: {err}") from err
 
-    try:
-        import jsonschema  # validate when available; a hard dependency on the controller
-
-        with open(schema_path, "r", encoding="utf-8") as sf:
-            jsonschema.validate(raw, json.load(sf))
-    except FileNotFoundError:
-        logger.debug("schema not found at %s, skipping validation", schema_path)
-    except ImportError:
-        logger.debug("jsonschema not installed, skipping validation")
-    except OSError as err:
-        # a present but unreadable schema is a broken installation, not a dev box
-        raise ConfigError(f"cannot read installed schema {schema_path}: {err}") from err
-    except json.JSONDecodeError as err:
-        # a corrupted installed schema must give a clear refusal, not a traceback
-        raise ConfigError(f"installed schema {schema_path} is not valid JSON: {err}") from err
-    except jsonschema.SchemaError as err:
-        raise ConfigError(
-            f"installed schema {schema_path} is not a valid JSON Schema: {err.message}"
-        ) from err
-    except jsonschema.ValidationError as err:
-        raise ConfigError(f"{path} failed schema validation: {err.message}") from err
+    _validate_against_schema(raw, path, schema_path)
 
     if not isinstance(raw, dict):
         raise ConfigError(f"{path}: top level must be a JSON object")
 
-    devices = [_build_entry(d, i) for i, d in enumerate(raw.get("devices", []))]
+    raw_devices = raw.get("devices", [])
+    if not isinstance(raw_devices, list):
+        raise ConfigError(f"{path}: 'devices' must be an array")
+    devices = [_build_entry(d, i) for i, d in enumerate(raw_devices)]
     # The schema cannot express uniqueness. Duplicate device ids would make two
     # actuators fight over one set of /devices/<id>/... topics, so refuse the
     # config. RS-485 addresses MAY repeat — the protocol allows identical
@@ -119,6 +157,10 @@ def load_config(path: str = CONFIG_PATH, schema_path: str = SCHEMA_PATH) -> Conf
         interval_ms = int(raw.get("connection_check_interval_ms", 5000))
     except (TypeError, ValueError) as err:
         raise ConfigError(f"connection_check_interval_ms must be an integer: {err}") from err
+    # Enforce the schema minimum too: a zero or negative interval would turn the
+    # poll loop into a busy-loop hammering the shared RS-485 bus.
+    if interval_ms < 100:
+        raise ConfigError(f"connection_check_interval_ms must be >= 100, got {interval_ms}")
     return Config(
         debug=bool(raw.get("debug", False)),
         check_interval_s=interval_ms / 1000.0,

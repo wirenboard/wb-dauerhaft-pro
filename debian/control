@@ -5,6 +5,7 @@ Maintainer: Wiren Board Team <info@wirenboard.com>
 Build-Depends: debhelper-compat (= 11),
                dh-python,
                python3-all,
+               python3-jsonschema,
                python3-mqttrpc,
                python3-pytest,
                python3-setuptools

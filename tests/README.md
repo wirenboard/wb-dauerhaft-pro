@@ -46,6 +46,9 @@ python3 -m pytest tests/
 |---|---|
 | `test_config_parses_with_unit_conversion` | поля устройства читаются корректно, интервал из мс в конфиге превращается в секунды |
 | `test_duplicate_device_id_rejected` | два одинаковых `device_id` → `ConfigError` (проверка, которую схема выразить не может) |
+| `test_skipped_schema_guards_reject_bad_config` | ручные guard'ы (метасимвол в id, адрес вне диапазона, нет поля, не-список `devices`, интервал < 100) отбивают битый конфиг, когда валидация схемой пропущена |
+| `test_non_utf8_config_rejected` | конфиг не в UTF-8 (кириллица в cp1251) → `ConfigError`, а не трейсбек |
+| `test_real_schema_accepts_valid_and_rejects_invalid` | боевой путь валидации по установленной схеме: корректный конфиг проходит, `rs485_address: 0` отклоняется |
 
 ### `tests/test_mqtt.py`
 

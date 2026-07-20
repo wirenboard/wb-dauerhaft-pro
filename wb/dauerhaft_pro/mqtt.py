@@ -10,6 +10,7 @@ Meta format (per WB conventions)::
 
     /devices/<id>/meta         {"driver":..., "title":{"en":..,"ru":..}}  (single JSON)
     /devices/<id>/meta/name    "<title>"                (legacy backward-compat only)
+    /devices/<id>/meta/error   ""|"r"/"w"/"p"           (retained; non-empty = unavailable, LWT target)
     /devices/<id>/controls/<c>/meta  {"type","readonly","order","title":{...}}
     /devices/<id>/controls/<c>       "<value>"          (retained)
     /devices/<id>/controls/<c>/on    <- command (subscribed)
@@ -17,6 +18,7 @@ Meta format (per WB conventions)::
 
 import json
 import logging
+from typing import Optional, Union
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +35,7 @@ class WbDevice:
     republished; :meth:`remove` clears everything on shutdown.
     """
 
-    def __init__(self, client, device_id, title, driver=DRIVER_NAME):
+    def __init__(self, client, device_id: str, title: str, driver: str = DRIVER_NAME) -> None:
         self._c = client
         self.id = device_id
         self._base = f"/devices/{device_id}"
@@ -46,16 +48,16 @@ class WbDevice:
 
     def add_control(
         self,
-        name,
-        control_type,
-        order,
+        name: str,
+        control_type: str,
+        order: int,
         *,
-        readonly=False,
-        title=None,
-        min_value=None,
-        max_value=None,
+        readonly: bool = False,
+        title: Optional[Union[str, dict]] = None,
+        min_value: Optional[int] = None,
+        max_value: Optional[int] = None,
         initial="",
-    ):
+    ) -> None:
         """
         Publish a control's meta and, unless *initial* is None, its first value.
         """
@@ -71,7 +73,7 @@ class WbDevice:
         if initial is not None:
             self.set_value(name, initial)
 
-    def on_command(self, name, callback):
+    def on_command(self, name: str, callback) -> None:
         """
         Subscribe to <control>/on and route matching messages to *callback*.
         """
@@ -80,26 +82,31 @@ class WbDevice:
         self._c.subscribe(topic)
         self._c.message_callback_add(topic, callback)
 
-    def resubscribe(self):
+    def resubscribe(self) -> None:
         """
         Re-subscribe all command topics (a broker reconnect drops them).
         """
         for topic in self._on_topics:
             self._c.subscribe(topic)
 
-    def set_value(self, name, value):
+    def set_value(self, name: str, value) -> None:
         """
         Publish a control's retained value (skipped when unchanged).
         """
         self._pub(f"{self._base}/controls/{name}", str(value))
 
-    def error_topic(self):
+    def error_topic(self) -> str:
         """
-        The device-level error topic (usable as a Last Will target).
+        The device-level error topic, usable as this connection's Last Will.
+
+        One MQTT connection carries a single Will, so only one device's error
+        can be the LWT target; the daemon uses the first device's. Every
+        device's error is still updated live by the poll loop while the daemon
+        runs — the Will only covers an ungraceful death of the process.
         """
         return f"{self._base}/meta/error"
 
-    def set_error(self, error):
+    def set_error(self, error: str) -> None:
         """
         Set/clear the device-level availability error.
 
@@ -109,24 +116,27 @@ class WbDevice:
         """
         self._pub(self.error_topic(), error or "")
 
-    def republish(self):
+    def republish(self) -> None:
         """
         Re-send every retained topic of this device.
 
         Retained messages are not guaranteed to survive a broker restart
-        (mosquitto persistence is off by default on the controller), and the
-        dedup cache would otherwise suppress re-sending unchanged values. The
-        cache remembers every topic published so far, so replaying it restores
-        the whole device after a reconnect.
+        (mosquitto persistence is off by default on the controller). The dedup
+        cache holds the current value of every topic published so far, so
+        re-sending it straight to the broker (bypassing the dedup, which would
+        otherwise suppress the unchanged values) restores the whole device
+        after a reconnect. The cache stays valid, so it is not rebuilt.
         """
-        last, self._last = self._last, {}
-        for topic, value in last.items():
-            self._pub(topic, value)
+        for topic, value in list(self._last.items()):
+            self._c.publish(topic, value, retain=True)
 
-    def remove(self):
+    def remove(self) -> None:
         """
-        Clear all retained topics for this device (called on shutdown).
+        Unsubscribe commands and clear all retained topics (called on shutdown).
         """
+        for topic in self._on_topics:
+            self._c.unsubscribe(topic)
+            self._c.message_callback_remove(topic)
         for name in self._controls:
             self._pub(f"{self._base}/controls/{name}", None)
             self._pub(f"{self._base}/controls/{name}/meta", None)
@@ -134,11 +144,15 @@ class WbDevice:
         self._pub(f"{self._base}/meta", None)
         self._pub(f"{self._base}/meta/name", None)
 
-    def _pub(self, topic, value):
+    def _pub(self, topic: str, value) -> None:
         # Skip republishing an unchanged retained value — the poll loop would
         # otherwise resend the same error/address to every /devices/# subscriber
         # on each cycle.
         if topic in self._last and self._last[topic] == value:
             return
-        self._last[topic] = value
-        self._c.publish(topic, value, retain=True)
+        info = self._c.publish(topic, value, retain=True)
+        # Cache only a publish that actually went out. A QoS0 publish issued
+        # while disconnected is dropped (rc != 0); caching it would let the
+        # dedup suppress it forever, leaving the topic stale until republish().
+        if getattr(info, "rc", 0) == 0:
+            self._last[topic] = value
