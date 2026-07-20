@@ -33,10 +33,10 @@ from .transport import SerialTransport
 
 logger = logging.getLogger(__name__)
 
-# WB service exit-code contract (wb-python-service-template): 6 = bad config
-# (systemd NOTCONFIGURED; the unit's RestartPreventExitStatus stops a restart
-# loop while genuine transient crashes still restart), 7 = clean exit on a
-# signal (SuccessExitStatus), 2 = could not start.
+# WB service exit-code contract: 6 = bad config (systemd NOTCONFIGURED; the
+# unit's RestartPreventExitStatus stops a restart loop while genuine transient
+# crashes still restart), 7 = clean exit on a signal (SuccessExitStatus),
+# 2 = could not start.
 EXIT_CONFIG_ERROR = 6
 EXIT_SIGNAL = 7
 EXIT_NOSTART = 2
