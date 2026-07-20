@@ -51,10 +51,11 @@ def _stderr_goes_to_journal() -> bool:
     ours rather than inherited from a parent or redirected to a file.
     """
     stream = os.environ.get("JOURNAL_STREAM")
-    if not stream:
+    if not stream or ":" not in stream:
         return False
+    dev_str, _, inode_str = stream.partition(":")
     try:
-        device, inode = (int(part) for part in stream.split(":", 1))
+        device, inode = int(dev_str), int(inode_str)
     except ValueError:
         return False
     try:
@@ -184,25 +185,31 @@ def main() -> int:
         entries.append((dev, act))
         logger.info("configured %s (addr 0x%02X) on %s", de.device_id, de.address, de.port.path)
 
+    reconnected = threading.Event()
+
     def _on_connect(_client, _userdata, _flags, rc):
+        """
+        Flag a (re)connect for the poll loop to recover on the main thread.
+
+        Runs on the MQTT network thread, so it only sets an event: the recovery
+        it triggers (resetting mqttrpc's subscription cache and replaying
+        retained state) touches WbDevice state shared with the poll loop, so it
+        must run on the one thread that owns that state.
+        """
         if rc != 0:
             logger.error("broker refused connection, rc=%d", rc)
             return
-        # The default clean session drops mqttrpc's reply subscription on a
-        # reconnect and it does not re-subscribe on its own; resetting the
-        # cache makes it re-subscribe on the next RPC call.
-        logger.info("(re)connected to broker; resetting RPC subscriptions")
-        rpc.subscribes.clear()
-        # Retained state does not survive a broker restart (persistence is off
-        # by default), so replay every device's retained topics.
-        for dev, _act in entries:
-            dev.republish()
+        logger.info("(re)connected to broker")
+        reconnected.set()
 
     client.on_connect = _on_connect
 
     stop = threading.Event()
 
     def _on_signal(*_):
+        """
+        Stop the poll loop on SIGINT / SIGTERM.
+        """
         logger.info("signal received, stopping")
         stop.set()
 
@@ -212,6 +219,16 @@ def main() -> int:
     logger.info("started with %d device(s)", len(entries))
     try:
         while not stop.is_set():
+            if reconnected.is_set():
+                reconnected.clear()
+                # Recover on the main thread (it owns WbDevice state): the clean
+                # session dropped mqttrpc's reply subscription, so reset its
+                # cache to re-subscribe on the next RPC call; and retained state
+                # does not survive a broker restart (persistence is off), so
+                # replay every device's retained topics.
+                rpc.subscribes.clear()
+                for dev, _act in entries:
+                    dev.republish()
             for dev, act in entries:
                 # A single device's poll must never take down the loop: an
                 # unexpected error from paho/mqttrpc outside the transport's
