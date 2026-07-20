@@ -2,9 +2,9 @@
 Minimal Wiren Board MQTT-conventions helper: a virtual device with controls.
 
 Publishes retained ``/devices/<id>/...`` topics and registers per-control command
-callbacks on ``<control>/on``. Modeled on wb-mqtt-urri's ``wbmqtt.Device``; works
-on any paho-compatible client — the daemon passes the shared
-``wb_common.mqtt_client.MQTTClient`` (the same client the RPC transport uses).
+callbacks on ``<control>/on``. Works on any paho-compatible client — the daemon
+passes the shared ``wb_common.mqtt_client.MQTTClient`` (the same client the RPC
+transport uses).
 
 Meta format (per WB conventions)::
 
