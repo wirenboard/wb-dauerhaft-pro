@@ -147,12 +147,12 @@ class WbDevice:
     def _pub(self, topic: str, value) -> None:
         # Skip republishing an unchanged retained value — the poll loop would
         # otherwise resend the same error/address to every /devices/# subscriber
-        # on each cycle.
+        # on each cycle. A publish dropped while disconnected stays cached on
+        # purpose: the daemon calls republish() on every (re)connect, which
+        # replays the whole cache and restores the device (broker restarts drop
+        # retained state), so recovery does not hinge on any single publish —
+        # and a one-shot meta topic dropped at startup is still restored.
         if topic in self._last and self._last[topic] == value:
             return
-        info = self._c.publish(topic, value, retain=True)
-        # Cache only a publish that actually went out. A QoS0 publish issued
-        # while disconnected is dropped (rc != 0); caching it would let the
-        # dedup suppress it forever, leaving the topic stale until republish().
-        if getattr(info, "rc", 0) == 0:
-            self._last[topic] = value
+        self._last[topic] = value
+        self._c.publish(topic, value, retain=True)
