@@ -33,13 +33,17 @@ from .transport import SerialTransport
 
 logger = logging.getLogger(__name__)
 
-# WB service exit-code contract: 6 = bad config (systemd NOTCONFIGURED; the
-# unit's RestartPreventExitStatus stops a restart loop while genuine transient
-# crashes still restart), 7 = clean exit on a signal (SuccessExitStatus),
-# 2 = could not start.
+# WB service exit-code contract (matches the python-service template):
+#   6 = bad config -> systemd NOTCONFIGURED; RestartPreventExitStatus stops a
+#       restart loop until the user fixes the config;
+#   7 = clean exit on a signal -> SuccessExitStatus;
+#   1 = transient failure (e.g. the broker is not up yet) -> NOT in
+#       RestartPreventExitStatus, so Restart=on-failure keeps retrying it.
+# argparse exits 2 on bad command-line arguments; the unit lists 2 as
+# non-restartable too, since bad arguments will not fix themselves on a restart.
 EXIT_CONFIG_ERROR = 6
 EXIT_SIGNAL = 7
-EXIT_NOSTART = 2
+EXIT_FAILURE = 1
 
 
 def _stderr_goes_to_journal() -> bool:
@@ -172,8 +176,11 @@ def main() -> int:
     try:
         client.start()  # connect (unix socket by default) + network thread
     except Exception as exc:  # pylint: disable=broad-except
+        # transient (mosquitto not up yet / restarting): exit with a restartable
+        # code so systemd's Restart=on-failure retries, instead of a code in
+        # RestartPreventExitStatus that would leave the daemon permanently down
         logger.error("cannot connect to broker %s: %s", args.broker_url, exc)
-        return EXIT_NOSTART
+        return EXIT_FAILURE
     transport = SerialTransport(rpc)
 
     entries = []  # [(WbDevice, Actuator)]
@@ -230,6 +237,8 @@ def main() -> int:
                 for dev, _act in entries:
                     dev.republish()
             for dev, act in entries:
+                if stop.is_set():
+                    break  # a signal mid-pass: stop now so the finally-block cleanup runs
                 # A single device's poll must never take down the loop: an
                 # unexpected error from paho/mqttrpc outside the transport's
                 # handled classes would otherwise kill the daemon.

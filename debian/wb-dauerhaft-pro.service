@@ -8,8 +8,9 @@ User=root
 ExecStart=/usr/bin/wb-dauerhaft-pro
 Restart=on-failure
 RestartSec=10
-# 6 = bad config (do not restart-loop until the user fixes it), 2 = could not
-# start; 7 = clean exit on a signal, counted as success.
+# 6 = bad config (do not restart-loop until the user fixes it), 2 = bad
+# command-line arguments (argparse); 7 = clean exit on a signal, a success.
+# A transient broker failure exits 1 (restartable), so systemd keeps retrying.
 RestartPreventExitStatus=2 6
 SuccessExitStatus=7
 

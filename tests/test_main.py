@@ -1,9 +1,22 @@
 """
-Daemon entry-point unit tests: a broken config must end with the
-NOTCONFIGURED exit code, and the journald detection must not misfire.
+Daemon entry-point unit tests: a broken config ends with the NOTCONFIGURED
+exit code, the journald detection does not misfire, and the control-publishing
+helpers put out the address indicator and availability.
 """
 
+import json
+from types import SimpleNamespace
+
 from wb.dauerhaft_pro import main as main_mod
+from wb.dauerhaft_pro.mqtt import WbDevice
+
+
+class _RecordingClient:
+    def __init__(self):
+        self.published = []
+
+    def publish(self, topic, value, retain=False):
+        self.published.append((topic, value))
 
 
 def test_broken_config_returns_notconfigured(tmp_path, monkeypatch):
@@ -27,3 +40,25 @@ def test_journal_detection_rejects_foreign_streams(monkeypatch):
     assert main_mod._stderr_goes_to_journal() is False  # not under systemd
     monkeypatch.setenv("JOURNAL_STREAM", "not:numbers")
     assert main_mod._stderr_goes_to_journal() is False  # malformed value
+
+
+def test_build_controls_and_publish_state():
+    """
+    build_controls публикует read-only индикатор адреса; publish_state гонит
+    текущий адрес и доступность (online → пустой /meta/error, offline → "r").
+    """
+    client = _RecordingClient()
+    dev = WbDevice(client, "dauerhaft_5f", "Привод")
+    act = SimpleNamespace(online=True, cfg=SimpleNamespace(address=0x5F))
+
+    main_mod.build_controls(dev, act)
+    main_mod.publish_state(dev, act)
+    published = dict(client.published)
+    assert published["/devices/dauerhaft_5f/controls/address"] == "0x5F"
+    meta = json.loads(published["/devices/dauerhaft_5f/controls/address/meta"])
+    assert meta["readonly"] is True and meta["order"] == 5
+    assert published["/devices/dauerhaft_5f/meta/error"] == ""  # online
+
+    act.online = False
+    main_mod.publish_state(dev, act)
+    assert dict(client.published)["/devices/dauerhaft_5f/meta/error"] == "r"  # offline
