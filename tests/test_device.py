@@ -12,6 +12,9 @@ class SilentTransport:
 
 
 def test_offline_only_after_consecutive_misses():
+    """
+    Доступность падает ровно после 3 промахов подряд; один-два промаха её не роняют.
+    """
     cfg = ActuatorConfig(
         device_id="a",
         name="a",
