@@ -1,25 +1,28 @@
 """
-Command layer: the prioritized TX queue and the MQTT command controls.
+Command layer: the prioritized TX queue and the retained-command guard.
 
-MQTT callbacks only enqueue; the daemon's main loop drains the queue between
-polls, so all bus I/O stays on the single thread that owns the half-duplex bus.
-Priorities are stop first, then movement, then the address writes. A new
-movement command replaces the queued one for the same device (only the latest
-matters) and a stop cancels it outright.
+MQTT command callbacks only enqueue; the daemon's main loop drains the queue
+between polls, so all bus I/O stays on the single thread that owns the
+half-duplex bus. Priorities are stop first, then movement, then the address
+writes; a new movement replaces the queued one for the same device (only the
+latest matters) and a stop cancels it outright.
 
-Control ids and titles follow the agreed controls table. The "New Address"
-field is input-only (it sends no frames); the "Set New Address" button next to
-it applies the entered value as a unicast address change.
+The controls that feed this queue live in ``controls.py``.
 """
 
 import logging
 import threading
+from collections import namedtuple
 
 logger = logging.getLogger(__name__)
 
 PRIO_STOP = 0
 PRIO_MOVE = 1
 PRIO_SETTING = 2
+
+# One queued command: its priority, an insertion sequence (FIFO tie-break within
+# a priority), a coalescing key (or None), and the zero-arg action to run.
+_Entry = namedtuple("_Entry", "priority sequence key action")
 
 
 def _ignore_retained(handler):
@@ -48,7 +51,7 @@ class CommandQueue:
     """
 
     def __init__(self):
-        self._items = []  # (priority, sequence, key, action)
+        self._items = []  # list of _Entry
         self._seq = 0
         self._lock = threading.Lock()  # put() runs on the MQTT thread, drain() on the bus thread
         self.ready = threading.Event()
@@ -59,9 +62,9 @@ class CommandQueue:
         """
         with self._lock:
             if key is not None:
-                self._items = [item for item in self._items if item[2] != key]
+                self._items = [entry for entry in self._items if entry.key != key]
             self._seq += 1
-            self._items.append((priority, self._seq, key, action))
+            self._items.append(_Entry(priority, self._seq, key, action))
         self.ready.set()
 
     def drain(self):
@@ -76,120 +79,10 @@ class CommandQueue:
             with self._lock:
                 if not self._items:
                     return
-                item = min(self._items, key=lambda entry: entry[:2])
-                self._items.remove(item)
+                entry = min(self._items, key=lambda item: (item.priority, item.sequence))
+                self._items.remove(entry)
             try:
-                item[3]()
+                entry.action()
             except Exception:  # pylint: disable=broad-except
                 # One failed command must not take the others (or the loop) down.
                 logger.exception("queued command failed")
-
-
-class ActuatorControls:
-    """
-    The command controls of one actuator: creation and command callbacks.
-    """
-
-    def __init__(self, dev, actuator, queue):
-        self._dev = dev
-        self._actuator = actuator
-        self._queue = queue
-        self._addr_target = actuator.cfg.address  # last value of the input field
-        self._move_key = ("move", actuator.cfg.device_id)
-        self._addr_key = ("addr", actuator.cfg.device_id)
-
-    def create(self):
-        """
-        Publish the command controls and subscribe to their command topics.
-
-        One row per control: (name, type, order, ru title, en title, handler,
-        extra add_control kwargs). Orders leave gaps for controls added later:
-        order 4 (position) and order 5 (the daemon's address indicator).
-        Pushbuttons get no retained value (initial None).
-        """
-        button = {"initial": None}
-        rows = [
-            ("up", "pushbutton", 1, "Открыть", "Open", self._on_up, button),
-            ("stop", "pushbutton", 2, "Стоп", "Stop", self._on_stop, button),
-            ("down", "pushbutton", 3, "Закрыть", "Close", self._on_down, button),
-            (
-                "set_address",
-                "value",
-                6,
-                "Новый адрес",
-                "New Address",
-                self._on_addr_target,
-                {"min_value": 1, "max_value": 255, "initial": self._addr_target},
-            ),
-            (
-                "address_set",
-                "pushbutton",
-                7,
-                "Установить новый адрес",
-                "Set New Address",
-                self._on_addr_set,
-                button,
-            ),
-        ]
-        for name, control_type, order, ru_title, en_title, handler, extra in rows:
-            self._dev.add_control(name, control_type, order, title={"ru": ru_title, "en": en_title}, **extra)
-            self._dev.on_command(name, _ignore_retained(handler))
-
-    # ------------------------------------------------------------------ #
-    # command callbacks (paho signature: client, userdata, message)
-    # ------------------------------------------------------------------ #
-    def _on_up(self, *_):
-        """
-        Queue an open command (movement priority).
-        """
-        self._queue.put(PRIO_MOVE, self._move_key, self._actuator.up)
-
-    def _on_down(self, *_):
-        """
-        Queue a close command (movement priority).
-        """
-        self._queue.put(PRIO_MOVE, self._move_key, self._actuator.down)
-
-    def _on_stop(self, *_):
-        """
-        Queue a stop (top priority); the shared move key also cancels a queued
-        movement.
-        """
-        self._queue.put(PRIO_STOP, self._move_key, self._actuator.stop)
-
-    def _on_addr_target(self, _client, _userdata, msg):
-        """
-        Remember the New Address field value; input only, sends no frames — the
-        Set New Address button applies it.
-        """
-        target = self._parse_int_payload(msg)
-        if target is None or not 1 <= target <= 255:
-            return
-        self._addr_target = target
-        self._dev.set_value("set_address", target)
-
-    def _on_addr_set(self, *_):
-        """
-        Queue applying the remembered address as a unicast change.
-
-        Keyed like movement so repeated presses coalesce to the latest target
-        instead of queuing several flash writes.
-        """
-        target = self._addr_target
-        self._queue.put(PRIO_SETTING, self._addr_key, lambda: self._actuator.set_address(target))
-
-    @staticmethod
-    def _parse_int_payload(msg):
-        """
-        Decode an integer command payload; None (and a log line) when malformed.
-
-        The length cap keeps a huge payload from tying up the MQTT thread in
-        int() and from being dumped into the log.
-        """
-        if len(msg.payload) <= 8:
-            try:
-                return int(msg.payload.decode())
-            except (UnicodeDecodeError, ValueError):
-                pass
-        logger.warning("ignoring malformed command payload %r on %s", msg.payload[:32], msg.topic)
-        return None

@@ -29,7 +29,8 @@ from mqttrpc import client as rpcclient
 from wb_common.mqtt_client import DEFAULT_BROKER_URL, MQTTClient
 
 from . import config as cfgmod
-from .commands import ActuatorControls, CommandQueue
+from .commands import CommandQueue
+from .controls import DeviceControls, _fmt_address, publish_state
 from .device import Actuator
 from .mqtt import DRIVER_NAME, WbDevice, build_error_topic
 from .transport import SerialTransport
@@ -113,46 +114,6 @@ def _setup_logging(debug: bool) -> None:
     root.setLevel(logging.DEBUG if debug else logging.INFO)
 
 
-def _fmt_address(address: int) -> str:
-    """
-    Format an RS-485 address as the driver's canonical ``0xHH`` string.
-
-    Used for both the retained ``address`` control value and the startup log;
-    the control's initial value and every poll update must format identically,
-    or the retained-dedup would republish the address on every cycle.
-    """
-    return f"0x{address:02X}"
-
-
-def build_controls(dev: WbDevice, actuator: Actuator) -> None:
-    """
-    Create the address-indicator control of one actuator.
-
-    Order 5 places the indicator below the command controls (orders 1-3 motion,
-    6-7 address); order 4 is reserved for the position indicator added later.
-    """
-    dev.add_control(
-        "address",
-        "text",
-        5,
-        readonly=True,
-        title={"ru": "Адрес", "en": "Address"},
-        initial=_fmt_address(actuator.cfg.address),
-    )
-
-
-def publish_state(dev: WbDevice, actuator: Actuator) -> None:
-    """
-    Publish the actuator's availability and its current address.
-
-    Availability follows the WB convention: an empty ``/meta/error`` means OK,
-    a non-empty value ("r") marks the device unavailable. Deduplicated retained
-    publishing keeps unchanged states quiet.
-    """
-    dev.set_error("" if actuator.online else "r")
-    dev.set_value("address", _fmt_address(actuator.cfg.address))
-
-
 def main() -> int:
     """
     Entry point: parse arguments, load the config and run the poll loop.
@@ -202,8 +163,7 @@ def main() -> int:
     for dev_cfg in conf.devices:
         actuator = Actuator(dev_cfg, transport)
         dev = WbDevice(client, dev_cfg.device_id, dev_cfg.name)
-        build_controls(dev, actuator)
-        ActuatorControls(dev, actuator, queue).create()
+        DeviceControls(dev, actuator, queue).create()
         dev.set_error("r")  # start unavailable until the first successful poll clears it
         entries.append((dev, actuator))
         logger.info(
@@ -219,13 +179,12 @@ def main() -> int:
         """
         Flag a (re)connect for the poll loop to recover on the main thread.
 
-        Runs on the MQTT network thread, so it only sets events: the recovery
-        it triggers (resetting mqttrpc's subscription cache, replaying retained
-        state and re-subscribing the command topics) touches WbDevice state
-        shared with the poll loop, so it must run on the thread that owns it.
-        Waking queue.ready makes that recovery run at once instead of after the
-        poll interval — otherwise a command (including stop) pressed in the gap
-        would be lost, because the command topics are not re-subscribed yet.
+        Runs on the MQTT network thread, so it only sets events:
+        - the recovery it triggers touches WbDevice state owned by the poll
+          loop, so it must run on that thread, not here;
+        - waking ``queue.ready`` runs that recovery at once instead of after the
+          poll interval, so a command pressed in the gap is not lost (its topic
+          is not re-subscribed yet).
         """
         if rc != 0:
             logger.error("broker refused connection, rc=%d", rc)
@@ -254,13 +213,14 @@ def main() -> int:
         while not stop.is_set():
             if reconnected.is_set():
                 reconnected.clear()
-                # Recover on the main thread (it owns WbDevice state): the clean
-                # session dropped mqttrpc's reply subscription and the command
-                # subscriptions, and retained state does not survive a broker
-                # restart (persistence is off). So reset mqttrpc's cache, replay
-                # every device's retained topics and re-subscribe its command
-                # topics. Guarded like the poll below: a paho/mqttrpc hiccup
-                # here must not take the loop down.
+                # Recover on the main thread (it owns WbDevice state). A reconnect
+                # drops mqttrpc's reply subscription and the command subscriptions,
+                # and retained state does not survive a broker restart. So:
+                #   - reset mqttrpc's subscription cache,
+                #   - replay every device's retained topics,
+                #   - re-subscribe its command topics.
+                # Guarded like the poll below so a paho/mqttrpc hiccup can't kill
+                # the loop.
                 try:
                     rpc.subscribes.clear()
                     for dev, _actuator in entries:
