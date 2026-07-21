@@ -1,10 +1,12 @@
 """
-The wb-dauerhaft-pro daemon: monitoring only.
+The wb-dauerhaft-pro daemon: monitoring and basic commands.
 
 Reads the confed config, publishes one WB-conventions virtual device per
-configured actuator — a read-only Address indicator plus availability via
-``/meta/error`` — and polls each actuator for liveness at the configured
-interval. Command controls (motion, address change) come in a later change.
+configured actuator — a read-only Address indicator, availability via
+``/meta/error``, and the command controls (open / stop / close and a unicast
+address change) — and polls each actuator for liveness at the configured
+interval. Command callbacks only enqueue; the poll loop drains the queue, so
+all bus I/O stays on the one thread that owns the half-duplex bus.
 
 The broker is reached through ``wb_common.mqtt_client.MQTTClient`` — by
 default over mosquitto's unix socket, which stays open for local services
@@ -27,6 +29,7 @@ from mqttrpc import client as rpcclient
 from wb_common.mqtt_client import DEFAULT_BROKER_URL, MQTTClient
 
 from . import config as cfgmod
+from .commands import ActuatorControls, CommandQueue
 from .device import Actuator
 from .mqtt import DRIVER_NAME, WbDevice, build_error_topic
 from .transport import SerialTransport
@@ -194,11 +197,13 @@ def main() -> int:
         return EXIT_FAILURE
     transport = SerialTransport(rpc)
 
+    queue = CommandQueue()  # MQTT callbacks enqueue; the poll loop drains on the bus thread
     entries = []  # [(WbDevice, Actuator)]
     for dev_cfg in conf.devices:
         actuator = Actuator(dev_cfg, transport)
         dev = WbDevice(client, dev_cfg.device_id, dev_cfg.name)
         build_controls(dev, actuator)
+        ActuatorControls(dev, actuator, queue).create()
         dev.set_error("r")  # start unavailable until the first successful poll clears it
         entries.append((dev, actuator))
         logger.info(
@@ -235,6 +240,7 @@ def main() -> int:
         """
         logger.info("signal received, stopping")
         stop.set()
+        queue.ready.set()  # wake the poll loop out of its wait at once
 
     signal.signal(signal.SIGINT, _on_signal)
     signal.signal(signal.SIGTERM, _on_signal)
@@ -245,17 +251,20 @@ def main() -> int:
             if reconnected.is_set():
                 reconnected.clear()
                 # Recover on the main thread (it owns WbDevice state): the clean
-                # session dropped mqttrpc's reply subscription, so reset its
-                # cache to re-subscribe on the next RPC call; and retained state
-                # does not survive a broker restart (persistence is off), so
-                # replay every device's retained topics. Guarded like the poll
-                # below: a paho/mqttrpc hiccup here must not take the loop down.
+                # session dropped mqttrpc's reply subscription and the command
+                # subscriptions, and retained state does not survive a broker
+                # restart (persistence is off). So reset mqttrpc's cache, replay
+                # every device's retained topics and re-subscribe its command
+                # topics. Guarded like the poll below: a paho/mqttrpc hiccup
+                # here must not take the loop down.
                 try:
                     rpc.subscribes.clear()
                     for dev, _actuator in entries:
                         dev.republish()
+                        dev.resubscribe()
                 except Exception as exc:  # pylint: disable=broad-except
                     logger.warning("reconnect recovery failed: %s", exc)
+            queue.drain()  # run queued commands (bus I/O) on this thread
             for dev, actuator in entries:
                 if stop.is_set():
                     break  # a signal mid-pass: stop now so the finally-block cleanup runs
@@ -267,7 +276,9 @@ def main() -> int:
                     publish_state(dev, actuator)
                 except Exception as exc:  # pylint: disable=broad-except
                     logger.warning("poll of %s failed: %s", dev.id, exc)
-            stop.wait(conf.check_interval_s)
+            # Sleep until the next poll, a queued command, or a signal — whichever
+            # comes first (put()/_on_signal set queue.ready).
+            queue.ready.wait(conf.check_interval_s)
     finally:
         logger.info("shutting down")
         for dev, _actuator in entries:
