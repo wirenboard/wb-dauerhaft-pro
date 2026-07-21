@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 DRIVER_NAME = "wb-dauerhaft-pro"
 
 
-def error_topic_for(device_id: str) -> str:
+def build_error_topic(device_id: str) -> str:
     """
     Build the device-level availability/error topic for a device id.
 
@@ -115,7 +115,7 @@ class WbDevice:
         device's error is still updated live by the poll loop while the daemon
         runs — the Will only covers an ungraceful death of the process.
         """
-        return error_topic_for(self.id)
+        return build_error_topic(self.id)
 
     def set_error(self, error: str) -> None:
         """

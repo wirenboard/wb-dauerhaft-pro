@@ -28,7 +28,7 @@ from wb_common.mqtt_client import DEFAULT_BROKER_URL, MQTTClient
 
 from . import config as cfgmod
 from .device import Actuator
-from .mqtt import DRIVER_NAME, WbDevice, error_topic_for
+from .mqtt import DRIVER_NAME, WbDevice, build_error_topic
 from .transport import SerialTransport
 
 logger = logging.getLogger(__name__)
@@ -46,7 +46,7 @@ EXIT_SIGNAL = 7
 EXIT_FAILURE = 1
 
 
-def _stderr_goes_to_journal() -> bool:
+def _detect_journal_stderr() -> bool:
     """
     Return True when this process's stderr is the systemd journal stream.
 
@@ -78,7 +78,7 @@ def _make_log_handler() -> logging.Handler:
     the real severity). Run from a console, or without python3-systemd, we fall
     back to a plain text handler so the level stays readable.
     """
-    if _stderr_goes_to_journal():
+    if _detect_journal_stderr():
         try:
             # Optional at import time; a hard dependency on the controller.
             # pylint: disable-next=import-outside-toplevel
@@ -121,7 +121,7 @@ def _fmt_address(address: int) -> str:
     return f"0x{address:02X}"
 
 
-def build_controls(dev: WbDevice, act: Actuator) -> None:
+def build_controls(dev: WbDevice, actuator: Actuator) -> None:
     """
     Create the monitoring controls of one actuator.
 
@@ -134,11 +134,11 @@ def build_controls(dev: WbDevice, act: Actuator) -> None:
         5,
         readonly=True,
         title={"ru": "Адрес", "en": "Address"},
-        initial=_fmt_address(act.cfg.address),
+        initial=_fmt_address(actuator.cfg.address),
     )
 
 
-def publish_state(dev: WbDevice, act: Actuator) -> None:
+def publish_state(dev: WbDevice, actuator: Actuator) -> None:
     """
     Publish the actuator's availability and its current address.
 
@@ -146,8 +146,8 @@ def publish_state(dev: WbDevice, act: Actuator) -> None:
     a non-empty value ("r") marks the device unavailable. Deduplicated retained
     publishing keeps unchanged states quiet.
     """
-    dev.set_error("" if act.online else "r")
-    dev.set_value("address", _fmt_address(act.cfg.address))
+    dev.set_error("" if actuator.online else "r")
+    dev.set_value("address", _fmt_address(actuator.cfg.address))
 
 
 def main() -> int:
@@ -181,7 +181,7 @@ def main() -> int:
     # single-device setup); the poll loop keeps every device's error up to date
     # while the daemon is alive.
     if conf.devices:
-        client.will_set(error_topic_for(conf.devices[0].device_id), "r", retain=True)
+        client.will_set(build_error_topic(conf.devices[0].device_id), "r", retain=True)
     rpc = rpcclient.TMQTTRPCClient(client)
     client.on_message = rpc.on_mqtt_message
     try:
@@ -195,13 +195,18 @@ def main() -> int:
     transport = SerialTransport(rpc)
 
     entries = []  # [(WbDevice, Actuator)]
-    for de in conf.devices:
-        act = Actuator(de, transport)
-        dev = WbDevice(client, de.device_id, de.name)
-        build_controls(dev, act)
+    for dev_cfg in conf.devices:
+        actuator = Actuator(dev_cfg, transport)
+        dev = WbDevice(client, dev_cfg.device_id, dev_cfg.name)
+        build_controls(dev, actuator)
         dev.set_error("r")  # start unavailable until the first successful poll clears it
-        entries.append((dev, act))
-        logger.info("configured %s (addr %s) on %s", de.device_id, _fmt_address(de.address), de.port.path)
+        entries.append((dev, actuator))
+        logger.info(
+            "configured %s (addr %s) on %s",
+            dev_cfg.device_id,
+            _fmt_address(dev_cfg.address),
+            dev_cfg.port.path,
+        )
 
     reconnected = threading.Event()
 
@@ -247,25 +252,25 @@ def main() -> int:
                 # below: a paho/mqttrpc hiccup here must not take the loop down.
                 try:
                     rpc.subscribes.clear()
-                    for dev, _act in entries:
+                    for dev, _actuator in entries:
                         dev.republish()
                 except Exception as exc:  # pylint: disable=broad-except
                     logger.warning("reconnect recovery failed: %s", exc)
-            for dev, act in entries:
+            for dev, actuator in entries:
                 if stop.is_set():
                     break  # a signal mid-pass: stop now so the finally-block cleanup runs
                 # A single device's poll must never take down the loop: an
                 # unexpected error from paho/mqttrpc outside the transport's
                 # handled classes would otherwise kill the daemon.
                 try:
-                    act.ping()
-                    publish_state(dev, act)
+                    actuator.ping()
+                    publish_state(dev, actuator)
                 except Exception as exc:  # pylint: disable=broad-except
                     logger.warning("poll of %s failed: %s", dev.id, exc)
             stop.wait(conf.check_interval_s)
     finally:
         logger.info("shutting down")
-        for dev, _act in entries:
+        for dev, _actuator in entries:
             dev.remove()
         # dev.remove() publishes retained clears asynchronously; let the network
         # loop flush them before we stop it, otherwise a device would linger in

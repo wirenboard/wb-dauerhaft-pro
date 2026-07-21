@@ -15,7 +15,7 @@ VALID_REPLY = bytes.fromhex("5f0102015f5199")
 
 def test_valid_frame_parses():
     """
-    Кадр корректной длины, записанный с живого привода, разбирается и декодируется.
+    A correct-length frame captured from a live actuator parses and decodes.
     """
     frame = protocol.parse_frame(VALID_REPLY)
     assert (frame.address, frame.function, frame.data) == (0x5F, protocol.Function.QUERY, b"\x01\x5f")
@@ -31,7 +31,8 @@ def test_valid_frame_parses():
 )
 def test_truncated_frames_raise_frame_error(truncated, message):
     """
-    Кадр короче минимума или короче заявленной байтом длины → FrameError.
+    A frame shorter than the minimum, or shorter than its declared length,
+    raises FrameError.
     """
     with pytest.raises(protocol.FrameError, match=message):
         protocol.parse_frame(truncated)
@@ -39,7 +40,7 @@ def test_truncated_frames_raise_frame_error(truncated, message):
 
 def test_frame_longer_than_declared_is_trimmed(caplog):
     """
-    Хвостовой мусор после целого кадра обрезается с предупреждением в лог.
+    Trailing junk after a whole frame is trimmed, with a warning logged.
     """
     # trailing line junk after a complete frame: salvage the declared span
     caplog.set_level(logging.WARNING, logger="wb.dauerhaft_pro.protocol")
@@ -51,7 +52,7 @@ def test_frame_longer_than_declared_is_trimmed(caplog):
 
 def test_corrupted_byte_raises_crc_error():
     """
-    Повреждённый байт → CrcError.
+    A corrupted byte raises CrcError.
     """
     corrupted = bytearray(VALID_REPLY)
     corrupted[3] ^= 0x01

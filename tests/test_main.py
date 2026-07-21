@@ -21,7 +21,7 @@ class _RecordingClient:
 
 def test_broken_config_returns_notconfigured(tmp_path, monkeypatch):
     """
-    Битый конфиг завершает демона кодом 6 (NOTCONFIGURED), без трейсбека.
+    A broken config ends the daemon with exit code 6 (NOTCONFIGURED), no traceback.
     """
     conf = tmp_path / "bad.conf"
     conf.write_text("{oops", encoding="utf-8")
@@ -31,33 +31,34 @@ def test_broken_config_returns_notconfigured(tmp_path, monkeypatch):
 
 def test_journal_detection_rejects_foreign_streams(monkeypatch):
     """
-    Определение журнального потока не включается без `$JOURNAL_STREAM` и на
-    мусорном значении — иначе консольные логи молча пропали бы.
+    The journal-stream detector stays off without $JOURNAL_STREAM and on a
+    malformed value — otherwise console logs would silently disappear.
     """
     # the detector is internal by design, but its parsing must be pinned
     # pylint: disable=protected-access
     monkeypatch.delenv("JOURNAL_STREAM", raising=False)
-    assert main_mod._stderr_goes_to_journal() is False  # not under systemd
+    assert main_mod._detect_journal_stderr() is False  # not under systemd
     monkeypatch.setenv("JOURNAL_STREAM", "not:numbers")
-    assert main_mod._stderr_goes_to_journal() is False  # malformed value
+    assert main_mod._detect_journal_stderr() is False  # malformed value
 
 
 def test_journal_detection_accepts_own_stream(monkeypatch):
     """
-    Когда (dev, inode) из `$JOURNAL_STREAM` совпадают со stderr, детектор
-    возвращает True (иначе под systemd выбрался бы StreamHandler и приоритеты
-    уровней в журнале потерялись бы) — пинит несущее сравнение ==.
+    When (dev, inode) from $JOURNAL_STREAM match stderr, the detector returns
+    True (otherwise systemd would get the StreamHandler and per-level journal
+    priorities would be lost) — pins the load-bearing == comparison.
     """
     # pylint: disable=protected-access
     monkeypatch.setattr("os.fstat", lambda _fd: SimpleNamespace(st_dev=42, st_ino=1337))
     monkeypatch.setenv("JOURNAL_STREAM", "42:1337")
-    assert main_mod._stderr_goes_to_journal() is True
+    assert main_mod._detect_journal_stderr() is True
 
 
 def test_build_controls_and_publish_state():
     """
-    build_controls публикует read-only индикатор адреса; publish_state гонит
-    текущий адрес и доступность (online → пустой /meta/error, offline → "r").
+    build_controls publishes the read-only address indicator; publish_state
+    publishes the current address and availability (online -> empty
+    /meta/error, offline -> "r").
     """
     client = _RecordingClient()
     dev = WbDevice(client, "dauerhaft_5f", "Привод")
