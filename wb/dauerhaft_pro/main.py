@@ -1,10 +1,12 @@
 """
-The wb-dauerhaft-pro daemon: monitoring only.
+The wb-dauerhaft-pro daemon: monitoring and basic commands.
 
 Reads the confed config, publishes one WB-conventions virtual device per
-configured actuator — a read-only Address indicator plus availability via
-``/meta/error`` — and polls each actuator for liveness at the configured
-interval. Command controls (motion, address change) come in a later change.
+configured actuator — a read-only Address indicator, availability via
+``/meta/error``, and the command controls (open / stop / close and a unicast
+address change) — and polls each actuator for liveness at the configured
+interval. Command callbacks only enqueue; the poll loop drains the queue, so
+all bus I/O stays on the one thread that owns the half-duplex bus.
 
 The broker is reached through ``wb_common.mqtt_client.MQTTClient`` — by
 default over mosquitto's unix socket, which stays open for local services
@@ -27,6 +29,8 @@ from mqttrpc import client as rpcclient
 from wb_common.mqtt_client import DEFAULT_BROKER_URL, MQTTClient
 
 from . import config as cfgmod
+from .commands import CommandQueue
+from .controls import DeviceControls, _fmt_address, publish_state
 from .device import Actuator
 from .mqtt import DRIVER_NAME, WbDevice, build_error_topic
 from .transport import SerialTransport
@@ -110,46 +114,6 @@ def _setup_logging(debug: bool) -> None:
     root.setLevel(logging.DEBUG if debug else logging.INFO)
 
 
-def _fmt_address(address: int) -> str:
-    """
-    Format an RS-485 address as the driver's canonical ``0xHH`` string.
-
-    Used for both the retained ``address`` control value and the startup log;
-    the control's initial value and every poll update must format identically,
-    or the retained-dedup would republish the address on every cycle.
-    """
-    return f"0x{address:02X}"
-
-
-def build_controls(dev: WbDevice, actuator: Actuator) -> None:
-    """
-    Create the monitoring controls of one actuator.
-
-    Order 5 keeps the indicator's position stable when the command controls
-    (orders 1..4) arrive in a later change.
-    """
-    dev.add_control(
-        "address",
-        "text",
-        5,
-        readonly=True,
-        title={"ru": "Адрес", "en": "Address"},
-        initial=_fmt_address(actuator.cfg.address),
-    )
-
-
-def publish_state(dev: WbDevice, actuator: Actuator) -> None:
-    """
-    Publish the actuator's availability and its current address.
-
-    Availability follows the WB convention: an empty ``/meta/error`` means OK,
-    a non-empty value ("r") marks the device unavailable. Deduplicated retained
-    publishing keeps unchanged states quiet.
-    """
-    dev.set_error("" if actuator.online else "r")
-    dev.set_value("address", _fmt_address(actuator.cfg.address))
-
-
 def main() -> int:
     """
     Entry point: parse arguments, load the config and run the poll loop.
@@ -194,11 +158,12 @@ def main() -> int:
         return EXIT_FAILURE
     transport = SerialTransport(rpc)
 
+    queue = CommandQueue()  # MQTT callbacks enqueue; the poll loop drains on the bus thread
     entries = []  # [(WbDevice, Actuator)]
     for dev_cfg in conf.devices:
         actuator = Actuator(dev_cfg, transport)
         dev = WbDevice(client, dev_cfg.device_id, dev_cfg.name)
-        build_controls(dev, actuator)
+        DeviceControls(dev, actuator, queue).create()
         dev.set_error("r")  # start unavailable until the first successful poll clears it
         entries.append((dev, actuator))
         logger.info(
@@ -214,16 +179,19 @@ def main() -> int:
         """
         Flag a (re)connect for the poll loop to recover on the main thread.
 
-        Runs on the MQTT network thread, so it only sets an event: the recovery
-        it triggers (resetting mqttrpc's subscription cache and replaying
-        retained state) touches WbDevice state shared with the poll loop, so it
-        must run on the one thread that owns that state.
+        Runs on the MQTT network thread, so it only sets events:
+        - the recovery it triggers touches WbDevice state owned by the poll
+          loop, so it must run on that thread, not here;
+        - waking ``queue.ready`` runs that recovery at once instead of after the
+          poll interval, so a command pressed in the gap is not lost (its topic
+          is not re-subscribed yet).
         """
         if rc != 0:
             logger.error("broker refused connection, rc=%d", rc)
             return
         logger.info("(re)connected to broker")
         reconnected.set()
+        queue.ready.set()  # wake the poll loop now so re-subscribe happens immediately
 
     client.on_connect = _on_connect
 
@@ -235,6 +203,7 @@ def main() -> int:
         """
         logger.info("signal received, stopping")
         stop.set()
+        queue.ready.set()  # wake the poll loop out of its wait at once
 
     signal.signal(signal.SIGINT, _on_signal)
     signal.signal(signal.SIGTERM, _on_signal)
@@ -244,18 +213,22 @@ def main() -> int:
         while not stop.is_set():
             if reconnected.is_set():
                 reconnected.clear()
-                # Recover on the main thread (it owns WbDevice state): the clean
-                # session dropped mqttrpc's reply subscription, so reset its
-                # cache to re-subscribe on the next RPC call; and retained state
-                # does not survive a broker restart (persistence is off), so
-                # replay every device's retained topics. Guarded like the poll
-                # below: a paho/mqttrpc hiccup here must not take the loop down.
+                # Recover on the main thread (it owns WbDevice state). A reconnect
+                # drops mqttrpc's reply subscription and the command subscriptions,
+                # and retained state does not survive a broker restart. So:
+                #   - reset mqttrpc's subscription cache,
+                #   - replay every device's retained topics,
+                #   - re-subscribe its command topics.
+                # Guarded like the poll below so a paho/mqttrpc hiccup can't kill
+                # the loop.
                 try:
                     rpc.subscribes.clear()
                     for dev, _actuator in entries:
                         dev.republish()
+                        dev.resubscribe()
                 except Exception as exc:  # pylint: disable=broad-except
                     logger.warning("reconnect recovery failed: %s", exc)
+            queue.drain()  # run queued commands (bus I/O) on this thread
             for dev, actuator in entries:
                 if stop.is_set():
                     break  # a signal mid-pass: stop now so the finally-block cleanup runs
@@ -267,7 +240,9 @@ def main() -> int:
                     publish_state(dev, actuator)
                 except Exception as exc:  # pylint: disable=broad-except
                     logger.warning("poll of %s failed: %s", dev.id, exc)
-            stop.wait(conf.check_interval_s)
+            # Sleep until the next poll, a queued command, or a signal — whichever
+            # comes first (put()/_on_signal set queue.ready).
+            queue.ready.wait(conf.check_interval_s)
     finally:
         logger.info("shutting down")
         for dev, _actuator in entries:
