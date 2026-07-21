@@ -96,6 +96,7 @@ class ActuatorControls:
         self._queue = queue
         self._addr_target = actuator.cfg.address  # last value of the input field
         self._move_key = ("move", actuator.cfg.device_id)
+        self._addr_key = ("addr", actuator.cfg.device_id)
 
     def create(self):
         """
@@ -132,25 +133,35 @@ class ActuatorControls:
         ]
         for name, control_type, order, ru_title, en_title, handler, extra in rows:
             self._dev.add_control(name, control_type, order, title={"ru": ru_title, "en": en_title}, **extra)
-            if handler is not None:
-                self._dev.on_command(name, _ignore_retained(handler))
+            self._dev.on_command(name, _ignore_retained(handler))
 
     # ------------------------------------------------------------------ #
     # command callbacks (paho signature: client, userdata, message)
     # ------------------------------------------------------------------ #
     def _on_up(self, *_):
+        """
+        Queue an open command (movement priority).
+        """
         self._queue.put(PRIO_MOVE, self._move_key, self._actuator.up)
 
     def _on_down(self, *_):
+        """
+        Queue a close command (movement priority).
+        """
         self._queue.put(PRIO_MOVE, self._move_key, self._actuator.down)
 
     def _on_stop(self, *_):
-        # Highest priority; the shared key also cancels any queued movement.
+        """
+        Queue a stop (top priority); the shared move key also cancels a queued
+        movement.
+        """
         self._queue.put(PRIO_STOP, self._move_key, self._actuator.stop)
 
     def _on_addr_target(self, _client, _userdata, msg):
-        # Input field only — remembered and echoed back, no frames sent; the
-        # "Set New Address" button applies it.
+        """
+        Remember the New Address field value; input only, sends no frames — the
+        Set New Address button applies it.
+        """
         target = self._parse_int_payload(msg)
         if target is None or not 1 <= target <= 255:
             return
@@ -158,8 +169,14 @@ class ActuatorControls:
         self._dev.set_value("set_address", target)
 
     def _on_addr_set(self, *_):
+        """
+        Queue applying the remembered address as a unicast change.
+
+        Keyed like movement so repeated presses coalesce to the latest target
+        instead of queuing several flash writes.
+        """
         target = self._addr_target
-        self._queue.put(PRIO_SETTING, None, lambda: self._actuator.set_address(target))
+        self._queue.put(PRIO_SETTING, self._addr_key, lambda: self._actuator.set_address(target))
 
     @staticmethod
     def _parse_int_payload(msg):

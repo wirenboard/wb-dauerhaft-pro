@@ -126,10 +126,10 @@ def _fmt_address(address: int) -> str:
 
 def build_controls(dev: WbDevice, actuator: Actuator) -> None:
     """
-    Create the monitoring controls of one actuator.
+    Create the address-indicator control of one actuator.
 
-    Order 5 keeps the indicator's position stable when the command controls
-    (orders 1..4) arrive in a later change.
+    Order 5 places the indicator below the command controls (orders 1-3 motion,
+    6-7 address); order 4 is reserved for the position indicator added later.
     """
     dev.add_control(
         "address",
@@ -219,16 +219,20 @@ def main() -> int:
         """
         Flag a (re)connect for the poll loop to recover on the main thread.
 
-        Runs on the MQTT network thread, so it only sets an event: the recovery
-        it triggers (resetting mqttrpc's subscription cache and replaying
-        retained state) touches WbDevice state shared with the poll loop, so it
-        must run on the one thread that owns that state.
+        Runs on the MQTT network thread, so it only sets events: the recovery
+        it triggers (resetting mqttrpc's subscription cache, replaying retained
+        state and re-subscribing the command topics) touches WbDevice state
+        shared with the poll loop, so it must run on the thread that owns it.
+        Waking queue.ready makes that recovery run at once instead of after the
+        poll interval — otherwise a command (including stop) pressed in the gap
+        would be lost, because the command topics are not re-subscribed yet.
         """
         if rc != 0:
             logger.error("broker refused connection, rc=%d", rc)
             return
         logger.info("(re)connected to broker")
         reconnected.set()
+        queue.ready.set()  # wake the poll loop now so re-subscribe happens immediately
 
     client.on_connect = _on_connect
 
