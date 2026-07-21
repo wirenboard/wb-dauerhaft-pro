@@ -159,13 +159,14 @@ def main() -> int:
     transport = SerialTransport(rpc)
 
     queue = CommandQueue()  # MQTT callbacks enqueue; the poll loop drains on the bus thread
-    entries = []  # [(WbDevice, Actuator)]
+    entries = []  # [(WbDevice, Actuator, DeviceControls)]
     for dev_cfg in conf.devices:
         actuator = Actuator(dev_cfg, transport)
         dev = WbDevice(client, dev_cfg.device_id, dev_cfg.name)
-        DeviceControls(dev, actuator, queue).create()
+        controls = DeviceControls(dev, actuator, queue)
+        controls.create()
         dev.set_error("r")  # start unavailable until the first successful poll clears it
-        entries.append((dev, actuator))
+        entries.append((dev, actuator, controls))
         logger.info(
             "configured %s (addr %s) on %s",
             dev_cfg.device_id,
@@ -223,13 +224,13 @@ def main() -> int:
                 # the loop.
                 try:
                     rpc.subscribes.clear()
-                    for dev, _actuator in entries:
+                    for dev, _actuator, _controls in entries:
                         dev.republish()
                         dev.resubscribe()
                 except Exception as exc:  # pylint: disable=broad-except
                     logger.warning("reconnect recovery failed: %s", exc)
             queue.drain()  # run queued commands (bus I/O) on this thread
-            for dev, actuator in entries:
+            for dev, actuator, controls in entries:
                 if stop.is_set():
                     break  # a signal mid-pass: stop now so the finally-block cleanup runs
                 # A single device's poll must never take down the loop: an
@@ -238,6 +239,8 @@ def main() -> int:
                 try:
                     actuator.ping()
                     publish_state(dev, actuator)
+                    if actuator.online:
+                        controls.publish_telemetry()  # position (and slat angle) while reachable
                 except Exception as exc:  # pylint: disable=broad-except
                     logger.warning("poll of %s failed: %s", dev.id, exc)
             # Sleep until the next poll, a queued command, or a signal — whichever
@@ -245,7 +248,7 @@ def main() -> int:
             queue.ready.wait(conf.check_interval_s)
     finally:
         logger.info("shutting down")
-        for dev, _actuator in entries:
+        for dev, _actuator, _controls in entries:
             dev.remove()
         # dev.remove() publishes retained clears asynchronously; let the network
         # loop flush them before we stop it, otherwise a device would linger in

@@ -63,6 +63,7 @@ def _build_entry(raw: dict, index: int) -> ActuatorConfig:
             learning_type=raw["learning_type"],
             address=int(raw["rs485_address"]),
             port=PortConfig(path=raw["port"]),
+            slat_angle_mode=raw.get("slat_angle_mode", "none"),
         )
     except KeyError as err:
         raise ConfigError(f"device #{index}: missing required field {err}") from err
@@ -80,6 +81,12 @@ def _build_entry(raw: dict, index: int) -> ActuatorConfig:
     bad_id = not isinstance(entry.device_id, str) or not entry.device_id
     if bad_id or any(char in entry.device_id for char in "$#+/"):
         raise ConfigError(f"device #{index}: device_id must be a non-empty string without '$ # + /'")
+    # Same reasoning: the slat_angle_mode drives the wire scale, so an unknown
+    # value must fail at startup, not at the first telemetry read.
+    if entry.slat_angle_mode not in ("none", "direct", "compressed"):
+        raise ConfigError(
+            f"device #{index}: slat_angle_mode must be none/direct/compressed, got {entry.slat_angle_mode!r}"
+        )
     return entry
 
 

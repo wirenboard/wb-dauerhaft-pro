@@ -2,29 +2,54 @@
 Device controls: the control table of one actuator and its state publishing.
 
 Single source of truth for every MQTT control of a device — the read-only
-address indicator and the command controls (open / stop / close, plus a
-unicast address change) — with their display order and bilingual titles.
+position and address indicators, the motion / waypoint / reverse / slat-angle
+controls and the address change — with their display order and bilingual titles.
 
 The command callbacks only enqueue onto the shared CommandQueue; the daemon's
 poll loop drains it, so all bus I/O stays on the one thread that owns the bus.
 The "New Address" field is input-only (it sends no frames); the "Set New
-Address" button applies the entered value as a unicast address change.
+Address" button applies the entered value, using the method chosen by the
+config's learning_type. The slat-angle controls exist only for slat/lamella
+curtains (config slat_angle_mode other than "none").
 """
 
 import logging
 
+from . import protocol
 from .commands import PRIO_MOVE, PRIO_SETTING, PRIO_STOP, _ignore_retained
 
 logger = logging.getLogger(__name__)
 
 # Control display order (single source of truth; the UI sorts controls by it).
-# The gap at 4 is reserved for the position indicator added later.
 ORDER_OPEN = 1
 ORDER_STOP = 2
 ORDER_CLOSE = 3
+ORDER_POSITION = 4
 ORDER_ADDRESS = 5
 ORDER_NEW_ADDRESS = 6
 ORDER_APPLY_ADDRESS = 7
+ORDER_REVERSE = 8
+ORDER_WAYPOINT_SET = 9
+ORDER_WAYPOINT_GO = 10
+ORDER_SLAT_ANGLE = 11
+ORDER_SLAT_ANGLE_CURRENT = 12
+
+# The highest address assignable to a motor: 0x00 is broadcast and 0xFF is the
+# learning-window service address, so a stored address must stay below both.
+MAX_ASSIGNABLE_ADDRESS = 0xFE
+
+# Whether the wire scale is compressed, per the config's slat_angle_mode. A
+# lookup instead of string comparisons: an unknown mode fails at startup here,
+# whatever the config loader let through.
+_SCALE_COMPRESSED = {"none": False, "direct": False, "compressed": True}
+
+# Human-readable texts for the position markers (values are not translated by
+# the web UI, so they are English-only like every other published value).
+_LIMIT_MARKERS = {
+    protocol.POSITION_BOTH_LIMITS_UNSET: "limits not set",
+    protocol.POSITION_LOWER_LIMIT_UNSET: "bottom limit not set",
+    protocol.POSITION_UPPER_LIMIT_UNSET: "top limit not set",
+}
 
 
 def _fmt_address(address: int) -> str:
@@ -52,38 +77,53 @@ def publish_state(dev, actuator) -> None:
 
 class DeviceControls:
     """
-    Every MQTT control of one actuator: creation, command callbacks and keys.
+    Every MQTT control of one actuator: creation, callbacks and telemetry.
+
+    ``reverse`` only remaps the UI (swapped open/close, mirrored position); it
+    is runtime-only and never reaches the wire.
     """
 
     def __init__(self, dev, actuator, queue):
         self._dev = dev
         self._actuator = actuator
         self._queue = queue
+        self._reverse = False
         self._addr_target = actuator.cfg.address  # last value of the input field
         self._move_key = ("move", actuator.cfg.device_id)
         self._addr_key = ("addr", actuator.cfg.device_id)
+        try:
+            self._compressed = _SCALE_COMPRESSED[actuator.cfg.slat_angle_mode]
+        except KeyError:
+            raise ValueError(
+                f"{actuator.cfg.device_id}: unknown slat_angle_mode {actuator.cfg.slat_angle_mode!r}"
+            ) from None
 
     def create(self):
         """
         Publish every control of the device and subscribe the command topics.
 
-        The read-only address indicator plus the command controls, each with its
-        display order (see the ORDER_* constants). Pushbuttons carry no retained
-        value (initial None).
+        One row per control: (name, type, order, ru title, en title, handler,
+        extra add_control kwargs). Read-only indicators (position, address,
+        current slat angle) have no handler; pushbuttons carry no retained value
+        (initial None). The slat-angle controls are added only when the config
+        enables them (slat_angle_mode other than "none").
         """
-        self._dev.add_control(
-            "address",
-            "text",
-            ORDER_ADDRESS,
-            readonly=True,
-            title={"ru": "Адрес", "en": "Address"},
-            initial=_fmt_address(self._actuator.cfg.address),
-        )
+        readonly = {"readonly": True}
         button = {"initial": None}
         rows = [
             ("up", "pushbutton", ORDER_OPEN, "Открыть", "Open", self._on_up, button),
             ("stop", "pushbutton", ORDER_STOP, "Стоп", "Stop", self._on_stop, button),
             ("down", "pushbutton", ORDER_CLOSE, "Закрыть", "Close", self._on_down, button),
+            ("position_current", "text", ORDER_POSITION, "Позиция", "Position", None, readonly),
+            (
+                "address",
+                "text",
+                ORDER_ADDRESS,
+                "Адрес",
+                "Address",
+                None,
+                {"readonly": True, "initial": _fmt_address(self._actuator.cfg.address)},
+            ),
             (
                 "set_address",
                 "value",
@@ -91,7 +131,7 @@ class DeviceControls:
                 "Новый адрес",
                 "New Address",
                 self._on_addr_target,
-                {"min_value": 1, "max_value": 255, "initial": self._addr_target},
+                {"min_value": 1, "max_value": MAX_ASSIGNABLE_ADDRESS, "initial": self._addr_target},
             ),
             (
                 "address_set",
@@ -102,25 +142,93 @@ class DeviceControls:
                 self._on_addr_set,
                 button,
             ),
+            ("reverse", "switch", ORDER_REVERSE, "Реверс", "Reverse", self._on_reverse, {"initial": 0}),
+            (
+                "point3_set",
+                "pushbutton",
+                ORDER_WAYPOINT_SET,
+                "Установить промежуточную точку",
+                "Set a Waypoint",
+                self._on_point3_set,
+                button,
+            ),
+            (
+                "point3_go",
+                "pushbutton",
+                ORDER_WAYPOINT_GO,
+                "Перейти на промежуточную точку",
+                "Go to a Waypoint",
+                self._on_point3_go,
+                button,
+            ),
         ]
+        if self._actuator.cfg.slat_angle_mode != "none":
+            rows.append(
+                (
+                    "slat_angle",
+                    "range",
+                    ORDER_SLAT_ANGLE,
+                    "Угол ламелей",
+                    "Slat Angle",
+                    self._on_slat_angle,
+                    {"min_value": 0, "max_value": protocol.ANGLE_MAX, "initial": None},
+                )
+            )
+            rows.append(
+                (
+                    "slat_angle_current",
+                    "text",
+                    ORDER_SLAT_ANGLE_CURRENT,
+                    "Текущий угол ламелей",
+                    "Current Slat Angle",
+                    None,
+                    readonly,
+                )
+            )
         for name, control_type, order, ru_title, en_title, handler, extra in rows:
             self._dev.add_control(name, control_type, order, title={"ru": ru_title, "en": en_title}, **extra)
-            self._dev.on_command(name, _ignore_retained(handler))
+            if handler is not None:
+                self._dev.on_command(name, _ignore_retained(handler))
+
+    def publish_telemetry(self):
+        """
+        Poll and publish the position (and slat angle when enabled).
+
+        Meant to be called while the device is online; a silent device simply
+        keeps its last published state.
+        """
+        pos = self._actuator.query_position()
+        if pos is not None:
+            text = _LIMIT_MARKERS.get(pos)
+            if text is None:
+                text = str(100 - pos if self._reverse and pos <= 100 else pos)
+            self._dev.set_value("position_current", text)
+        if self._actuator.cfg.slat_angle_mode == "none":
+            return
+        raw = self._actuator.query_angle_raw()
+        if raw is not None:
+            # Clamp: a raw byte outside the scale (e.g. a marker) must not push
+            # an out-of-range value into the 0..180 range control.
+            degrees = max(0, min(protocol.ANGLE_MAX, protocol.raw_to_angle(raw, self._compressed)))
+            self._dev.set_value("slat_angle_current", str(degrees))
+            self._dev.set_value("slat_angle", str(degrees))
 
     # ------------------------------------------------------------------ #
     # command callbacks (paho signature: client, userdata, message)
     # ------------------------------------------------------------------ #
     def _on_up(self, *_):
         """
-        Queue an open command (movement priority).
+        Queue an open command (movement priority); reverse swaps open/close.
         """
-        self._queue.put(PRIO_MOVE, self._move_key, self._actuator.up)
+        action = self._actuator.down if self._reverse else self._actuator.up
+        self._queue.put(PRIO_MOVE, self._move_key, action)
 
     def _on_down(self, *_):
         """
-        Queue a close command (movement priority).
+        Queue a close command (movement priority); reverse swaps open/close.
         """
-        self._queue.put(PRIO_MOVE, self._move_key, self._actuator.down)
+        action = self._actuator.up if self._reverse else self._actuator.down
+        self._queue.put(PRIO_MOVE, self._move_key, action)
 
     def _on_stop(self, *_):
         """
@@ -129,26 +237,70 @@ class DeviceControls:
         """
         self._queue.put(PRIO_STOP, self._move_key, self._actuator.stop)
 
+    def _on_point3_set(self, *_):
+        """
+        Queue storing the current position as the waypoint (setting priority).
+        """
+        self._queue.put(PRIO_SETTING, None, self._actuator.set_third_point)
+
+    def _on_point3_go(self, *_):
+        """
+        Queue driving to the stored waypoint (movement priority).
+        """
+        self._queue.put(PRIO_MOVE, self._move_key, self._actuator.go_third_point)
+
+    def _on_reverse(self, _client, _userdata, msg):
+        """
+        Toggle the runtime reverse flag: swaps open/close and mirrors the shown
+        position. UI-only — it never sends a frame.
+        """
+        if msg.payload not in (b"0", b"1"):
+            logger.warning("ignoring malformed command payload %r on %s", msg.payload[:32], msg.topic)
+            return
+        self._reverse = msg.payload == b"1"
+        self._dev.set_value("reverse", 1 if self._reverse else 0)
+
+    def _on_slat_angle(self, _client, _userdata, msg):
+        """
+        Queue rotating the slats to the requested angle (movement priority).
+        """
+        degrees = self._parse_int_payload(msg)
+        if degrees is None or not 0 <= degrees <= protocol.ANGLE_MAX:
+            return
+        raw = protocol.angle_to_raw(degrees, self._compressed)
+
+        def action():
+            self._actuator.set_angle_raw(raw)
+            self._dev.set_value("slat_angle", degrees)
+
+        self._queue.put(PRIO_MOVE, self._move_key, action)
+
     def _on_addr_target(self, _client, _userdata, msg):
         """
         Remember the New Address field value; input only, sends no frames — the
         Set New Address button applies it.
         """
         target = self._parse_int_payload(msg)
-        if target is None or not 1 <= target <= 255:
+        if target is None or not 1 <= target <= MAX_ASSIGNABLE_ADDRESS:
             return
         self._addr_target = target
         self._dev.set_value("set_address", target)
 
     def _on_addr_set(self, *_):
         """
-        Queue applying the remembered address as a unicast change.
+        Queue applying the remembered address using the configured method.
 
-        Keyed like movement so repeated presses coalesce to the latest target
-        instead of queuing several flash writes.
+        ``physical_button`` addresses the motor through its learning window (the
+        user presses the motor's button); any other learning_type retargets the
+        motor directly by unicast. Keyed so repeated presses coalesce to the
+        latest target instead of queuing several flash writes.
         """
         target = self._addr_target
-        self._queue.put(PRIO_SETTING, self._addr_key, lambda: self._actuator.set_address(target))
+        if self._actuator.cfg.learning_type == "physical_button":
+            write = self._actuator.set_address_learning
+        else:
+            write = self._actuator.set_address
+        self._queue.put(PRIO_SETTING, self._addr_key, lambda: write(target))
 
     @staticmethod
     def _parse_int_payload(msg):

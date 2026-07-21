@@ -70,6 +70,21 @@
                     ],
                     "default": "/dev/ttyRS485-2",
                     "propertyOrder": 6
+                },
+                "slat_angle_mode": {
+                    "type": "string",
+                    "title": "slat_angle_mode_title",
+                    "description": "slat_angle_mode_description",
+                    "enum": ["none", "direct", "compressed"],
+                    "default": "none",
+                    "propertyOrder": 7,
+                    "options": {
+                        "enum_titles": [
+                            "slat_angle_mode_none",
+                            "slat_angle_mode_direct",
+                            "slat_angle_mode_compressed"
+                        ]
+                    }
                 }
             },
             "required": ["device_id", "device_name", "curtain_type", "learning_type", "rs485_address", "port"],
@@ -132,6 +147,11 @@
             "rs485_address_title": "RS-485 Bus Address",
             "port_title": "RS-485 Port",
             "port_description": "The selected port must be set up according to the curtain actuator manufacturer's instructions",
+            "slat_angle_mode_title": "Slat Angle Scale",
+            "slat_angle_mode_description": "Enables the slat angle controls; the scale must match the actuator's mode",
+            "slat_angle_mode_none": "No slats",
+            "slat_angle_mode_direct": "Direct (0–180° as is)",
+            "slat_angle_mode_compressed": "Compressed (0–180° mapped to 36–144)",
             "connection_check_interval_title": "Connection Check Interval, ms",
             "debug_title": "Enable Debug Logging"
         },
@@ -152,6 +172,11 @@
             "rs485_address_title": "Адрес на шине RS-485",
             "port_title": "Порт RS-485",
             "port_description": "Выбранный порт должен быть настроен согласно инструкции производителя привода штор",
+            "slat_angle_mode_title": "Шкала угла ламелей",
+            "slat_angle_mode_description": "Включает контролы угла ламелей; шкала должна соответствовать режиму привода",
+            "slat_angle_mode_none": "Ламелей нет",
+            "slat_angle_mode_direct": "Прямая (0–180° как есть)",
+            "slat_angle_mode_compressed": "Сжатая (0–180° в 36–144)",
             "connection_check_interval_title": "Интервал проверки связи, мс",
             "debug_title": "Включить отладочные сообщения"
         }
