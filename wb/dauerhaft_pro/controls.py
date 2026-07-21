@@ -2,15 +2,16 @@
 Device controls: the control table of one actuator and its state publishing.
 
 Single source of truth for every MQTT control of a device — the read-only
-position and address indicators, the motion / waypoint / reverse / slat-angle
-controls and the address change — with their display order and bilingual titles.
+position and address indicators, the motion / waypoint / slat-angle controls and
+the address change — with their display order and bilingual titles.
 
 The command callbacks only enqueue onto the shared CommandQueue; the daemon's
 poll loop drains it, so all bus I/O stays on the one thread that owns the bus.
 The "New Address" field is input-only (it sends no frames); the "Set New
 Address" button applies the entered value, using the method chosen by the
 config's learning_type. The slat-angle controls exist only for slat/lamella
-curtains (config slat_angle_mode other than "none").
+curtains (config slat_angle_mode other than "none"). Reverse is a config
+setting (ActuatorConfig.reverse), applied at startup — it has no widget control.
 """
 
 import logging
@@ -28,11 +29,10 @@ ORDER_POSITION = 4
 ORDER_ADDRESS = 5
 ORDER_NEW_ADDRESS = 6
 ORDER_APPLY_ADDRESS = 7
-ORDER_REVERSE = 8
-ORDER_WAYPOINT_SET = 9
-ORDER_WAYPOINT_GO = 10
-ORDER_SLAT_ANGLE = 11
-ORDER_SLAT_ANGLE_CURRENT = 12
+ORDER_WAYPOINT_SET = 8
+ORDER_WAYPOINT_GO = 9
+ORDER_SLAT_ANGLE = 10
+ORDER_SLAT_ANGLE_CURRENT = 11
 
 # The highest address assignable to a motor: 0x00 is broadcast and 0xFF is the
 # learning-window service address, so a stored address must stay below both.
@@ -81,15 +81,15 @@ class DeviceControls:
     """
     Every MQTT control of one actuator: creation, callbacks and telemetry.
 
-    ``reverse`` only remaps the UI (swapped open/close, mirrored position); it
-    is runtime-only and never reaches the wire.
+    ``reverse`` (config-only, see ActuatorConfig.reverse) remaps the UI at
+    startup — swapped open/close and a mirrored position; it never reaches the wire.
     """
 
     def __init__(self, dev, actuator, queue):
         self._dev = dev
         self._actuator = actuator
         self._queue = queue
-        self._reverse = actuator.cfg.reverse  # persisted in config; the switch overrides at runtime
+        self._reverse = actuator.cfg.reverse  # from the config (json-editor); no runtime widget toggle
         self._addr_target = actuator.cfg.address  # last value of the input field
         self._move_key = ("move", actuator.cfg.device_id)
         self._addr_key = ("addr", actuator.cfg.device_id)
@@ -144,15 +144,6 @@ class DeviceControls:
                 "Set New Address",
                 self._on_addr_set,
                 button,
-            ),
-            (
-                "reverse",
-                "switch",
-                ORDER_REVERSE,
-                "Реверс",
-                "Reverse",
-                self._on_reverse,
-                {"initial": 1 if self._reverse else 0},
             ),
             (
                 "point3_set",
@@ -263,17 +254,6 @@ class DeviceControls:
         Queue driving to the stored waypoint (movement priority).
         """
         self._queue.put(PRIO_MOVE, self._move_key, self._actuator.go_third_point)
-
-    def _on_reverse(self, _client, _userdata, msg):
-        """
-        Toggle the runtime reverse flag: swaps open/close and mirrors the shown
-        position. UI-only — it never sends a frame.
-        """
-        if msg.payload not in (b"0", b"1"):
-            logger.warning("ignoring malformed command payload %r on %s", msg.payload[:32], msg.topic)
-            return
-        self._reverse = msg.payload == b"1"
-        self._dev.set_value("reverse", 1 if self._reverse else 0)
 
     def _on_slat_angle(self, _client, _userdata, msg):
         """
