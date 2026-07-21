@@ -3,13 +3,13 @@ Command layer: the prioritized TX queue and the MQTT command controls.
 
 MQTT callbacks only enqueue; the daemon's main loop drains the queue between
 polls, so all bus I/O stays on the single thread that owns the half-duplex bus.
-Priorities follow the vendor driver: stop first, then movement, then the
-address writes. A new movement command replaces the queued one for the same
-device (only the latest matters) and a stop cancels it outright.
+Priorities are stop first, then movement, then the address writes. A new
+movement command replaces the queued one for the same device (only the latest
+matters) and a stop cancels it outright.
 
-Control ids and titles follow the agreed controls table. The "Set Address To"
-field is input-only (it sends no frames); the "Set Address" button next to it
-applies the entered value as a unicast address change.
+Control ids and titles follow the agreed controls table. The "New Address"
+field is input-only (it sends no frames); the "Set New Address" button next to
+it applies the entered value as a unicast address change.
 """
 
 import logging
@@ -22,9 +22,9 @@ PRIO_MOVE = 1
 PRIO_SETTING = 2
 
 
-def _fresh_only(handler):
+def _ignore_retained(handler):
     """
-    Wrap a command handler to ignore retained messages.
+    Wrap a command handler to drop retained messages.
 
     A command retained on the broker would otherwise replay on every daemon
     restart — a control the user never actually pressed.
@@ -90,12 +90,12 @@ class ActuatorControls:
     The command controls of one actuator: creation and command callbacks.
     """
 
-    def __init__(self, dev, act, queue):
+    def __init__(self, dev, actuator, queue):
         self._dev = dev
-        self._act = act
+        self._actuator = actuator
         self._queue = queue
-        self._addr_target = act.cfg.address  # last value of the input field
-        self._move_key = ("move", act.cfg.device_id)
+        self._addr_target = actuator.cfg.address  # last value of the input field
+        self._move_key = ("move", actuator.cfg.device_id)
 
     def create(self):
         """
@@ -115,35 +115,43 @@ class ActuatorControls:
                 "set_address",
                 "value",
                 6,
-                "Сменить адрес на",
-                "Set Address To",
+                "Новый адрес",
+                "New Address",
                 self._on_addr_target,
                 {"min_value": 1, "max_value": 255, "initial": self._addr_target},
             ),
-            ("address_set", "pushbutton", 7, "Сменить адрес", "Set Address", self._on_addr_set, button),
+            (
+                "address_set",
+                "pushbutton",
+                7,
+                "Установить новый адрес",
+                "Set New Address",
+                self._on_addr_set,
+                button,
+            ),
         ]
         for name, control_type, order, ru_title, en_title, handler, extra in rows:
             self._dev.add_control(name, control_type, order, title={"ru": ru_title, "en": en_title}, **extra)
             if handler is not None:
-                self._dev.on_command(name, _fresh_only(handler))
+                self._dev.on_command(name, _ignore_retained(handler))
 
     # ------------------------------------------------------------------ #
     # command callbacks (paho signature: client, userdata, message)
     # ------------------------------------------------------------------ #
     def _on_up(self, *_):
-        self._queue.put(PRIO_MOVE, self._move_key, self._act.up)
+        self._queue.put(PRIO_MOVE, self._move_key, self._actuator.up)
 
     def _on_down(self, *_):
-        self._queue.put(PRIO_MOVE, self._move_key, self._act.down)
+        self._queue.put(PRIO_MOVE, self._move_key, self._actuator.down)
 
     def _on_stop(self, *_):
         # Highest priority; the shared key also cancels any queued movement.
-        self._queue.put(PRIO_STOP, self._move_key, self._act.stop)
+        self._queue.put(PRIO_STOP, self._move_key, self._actuator.stop)
 
     def _on_addr_target(self, _client, _userdata, msg):
-        # Input field only — remembered and echoed back, no frames sent (the
-        # "Set Address" button applies it), matching the vendor panel.
-        target = self._int_payload(msg)
+        # Input field only — remembered and echoed back, no frames sent; the
+        # "Set New Address" button applies it.
+        target = self._parse_int_payload(msg)
         if target is None or not 1 <= target <= 255:
             return
         self._addr_target = target
@@ -151,10 +159,10 @@ class ActuatorControls:
 
     def _on_addr_set(self, *_):
         target = self._addr_target
-        self._queue.put(PRIO_SETTING, None, lambda: self._act.set_address(target))
+        self._queue.put(PRIO_SETTING, None, lambda: self._actuator.set_address(target))
 
     @staticmethod
-    def _int_payload(msg):
+    def _parse_int_payload(msg):
         """
         Decode an integer command payload; None (and a log line) when malformed.
 
