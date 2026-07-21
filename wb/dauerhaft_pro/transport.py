@@ -3,11 +3,9 @@ RS-485 transport for Dauerhaft PRO via wb-mqtt-serial's ``port/Load`` MQTT-RPC.
 
 Rather than opening the serial port directly (which would fight wb-mqtt-serial
 for the bus), the driver asks wb-mqtt-serial to put a raw frame on the wire and
-return the reply. This is the same mechanism the vendor's wb-rules driver uses
-and lets Dauerhaft devices share a bus with regular Modbus devices.
+return the reply, so Dauerhaft devices share a bus with regular Modbus devices.
 
-RPC contract (verified against wb-mqtt-serial sources and the reference tools
-``modbus-utils-rpc`` / ``wb-mqtt-dali``)::
+RPC contract (wb-mqtt-serial ``port``/``Load``)::
 
     call("wb-mqtt-serial", "port", "Load", params, timeout_s)
     params = {path, baud_rate, parity, data_bits, stop_bits,
@@ -51,7 +49,7 @@ DEFAULT_TOTAL_TIMEOUT_MS = 500
 _RPC_MARGIN_S = 10.0
 
 # wb-mqtt-serial error codes. E_RPC_REQUEST_TIMEOUT is version-dependent (-32100
-# in libwbmqtt, -32600 in newer tooling) and always means "no answer in time".
+# on older builds, -32600 on newer ones) and always means "no answer in time".
 # E_RPC_SERVER_ERROR (-32000) is GENERIC ("Port IO error: ..."): only a serial
 # read timeout ("... request timed out") means the device stayed silent — other
 # Port IO errors (wrong path, busy port) are real faults worth a transport error.

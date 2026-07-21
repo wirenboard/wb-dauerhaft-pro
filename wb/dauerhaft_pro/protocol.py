@@ -15,8 +15,8 @@ Frame layout (both directions), section 2 of the spec::
   * ``data_length`` -- number of ``data`` bytes (N), one byte.
   * ``crc16``       -- CRC-16/Modbus (poly 0xA001, init 0xFFFF), low byte first.
 
-Verified against the vendor spec, the vendor's wb-rules driver and live bus
-traffic on the test stand (CRC cross-checked by computation).
+Verified against the vendor spec and live bus traffic on the test stand (CRC
+cross-checked by computation).
 
 Spec quirk: section 5 calls the checksum "CRC-8/MAXIM", but both the reference C
 code in the spec and the wire use CRC-16/Modbus. The label is a documentation bug.

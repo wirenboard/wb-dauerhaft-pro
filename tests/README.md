@@ -31,3 +31,8 @@ python3 -m pytest tests/
 - **`tests/test_mqtt.py`** — MQTT-обвязка (`wb/dauerhaft_pro/mqtt.py`): дедуп
   повторных retained-публикаций и восстановление всех топиков через `republish()`
   после рестарта брокера.
+- **`tests/test_main.py`** — точка входа демона (`wb/dauerhaft_pro/main.py`):
+  битый конфиг завершает демона кодом 6 (NOTCONFIGURED) без трейсбека;
+  определение журнального потока не включается без `$JOURNAL_STREAM` и на
+  мусорном значении; хелперы `build_controls`/`publish_state` публикуют
+  индикатор адреса и доступность.
