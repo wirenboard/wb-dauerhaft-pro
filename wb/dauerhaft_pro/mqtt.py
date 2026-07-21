@@ -25,6 +25,17 @@ logger = logging.getLogger(__name__)
 DRIVER_NAME = "wb-dauerhaft-pro"
 
 
+def error_topic_for(device_id: str) -> str:
+    """
+    Build the device-level availability/error topic for a device id.
+
+    A module-level helper so the daemon can set the Last Will topic before any
+    WbDevice exists (the will must be registered before the client connects),
+    while :meth:`WbDevice.error_topic` stays the single source of the format.
+    """
+    return f"/devices/{device_id}/meta/error"
+
+
 class WbDevice:
     """
     A virtual device published per the WB MQTT conventions.
@@ -104,7 +115,7 @@ class WbDevice:
         device's error is still updated live by the poll loop while the daemon
         runs — the Will only covers an ungraceful death of the process.
         """
-        return f"{self._base}/meta/error"
+        return error_topic_for(self.id)
 
     def set_error(self, error: str) -> None:
         """

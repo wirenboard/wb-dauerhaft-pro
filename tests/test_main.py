@@ -42,6 +42,18 @@ def test_journal_detection_rejects_foreign_streams(monkeypatch):
     assert main_mod._stderr_goes_to_journal() is False  # malformed value
 
 
+def test_journal_detection_accepts_own_stream(monkeypatch):
+    """
+    Когда (dev, inode) из `$JOURNAL_STREAM` совпадают со stderr, детектор
+    возвращает True (иначе под systemd выбрался бы StreamHandler и приоритеты
+    уровней в журнале потерялись бы) — пинит несущее сравнение ==.
+    """
+    # pylint: disable=protected-access
+    monkeypatch.setattr("os.fstat", lambda _fd: SimpleNamespace(st_dev=42, st_ino=1337))
+    monkeypatch.setenv("JOURNAL_STREAM", "42:1337")
+    assert main_mod._stderr_goes_to_journal() is True
+
+
 def test_build_controls_and_publish_state():
     """
     build_controls публикует read-only индикатор адреса; publish_state гонит

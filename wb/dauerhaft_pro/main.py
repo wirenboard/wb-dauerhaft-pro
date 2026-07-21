@@ -28,7 +28,7 @@ from wb_common.mqtt_client import DEFAULT_BROKER_URL, MQTTClient
 
 from . import config as cfgmod
 from .device import Actuator
-from .mqtt import DRIVER_NAME, WbDevice
+from .mqtt import DRIVER_NAME, WbDevice, error_topic_for
 from .transport import SerialTransport
 
 logger = logging.getLogger(__name__)
@@ -110,6 +110,17 @@ def _setup_logging(debug: bool) -> None:
     root.setLevel(logging.DEBUG if debug else logging.INFO)
 
 
+def _fmt_address(address: int) -> str:
+    """
+    Format an RS-485 address as the driver's canonical ``0xHH`` string.
+
+    Used for both the retained ``address`` control value and the startup log;
+    the control's initial value and every poll update must format identically,
+    or the retained-dedup would republish the address on every cycle.
+    """
+    return f"0x{address:02X}"
+
+
 def build_controls(dev: WbDevice, act: Actuator) -> None:
     """
     Create the monitoring controls of one actuator.
@@ -123,7 +134,7 @@ def build_controls(dev: WbDevice, act: Actuator) -> None:
         5,
         readonly=True,
         title={"ru": "Адрес", "en": "Address"},
-        initial=f"0x{act.cfg.address:02X}",
+        initial=_fmt_address(act.cfg.address),
     )
 
 
@@ -136,7 +147,7 @@ def publish_state(dev: WbDevice, act: Actuator) -> None:
     publishing keeps unchanged states quiet.
     """
     dev.set_error("" if act.online else "r")
-    dev.set_value("address", f"0x{act.cfg.address:02X}")
+    dev.set_value("address", _fmt_address(act.cfg.address))
 
 
 def main() -> int:
@@ -170,7 +181,7 @@ def main() -> int:
     # single-device setup); the poll loop keeps every device's error up to date
     # while the daemon is alive.
     if conf.devices:
-        client.will_set(f"/devices/{conf.devices[0].device_id}/meta/error", "r", retain=True)
+        client.will_set(error_topic_for(conf.devices[0].device_id), "r", retain=True)
     rpc = rpcclient.TMQTTRPCClient(client)
     client.on_message = rpc.on_mqtt_message
     try:
@@ -190,7 +201,7 @@ def main() -> int:
         build_controls(dev, act)
         dev.set_error("r")  # start unavailable until the first successful poll clears it
         entries.append((dev, act))
-        logger.info("configured %s (addr 0x%02X) on %s", de.device_id, de.address, de.port.path)
+        logger.info("configured %s (addr %s) on %s", de.device_id, _fmt_address(de.address), de.port.path)
 
     reconnected = threading.Event()
 
@@ -232,10 +243,14 @@ def main() -> int:
                 # session dropped mqttrpc's reply subscription, so reset its
                 # cache to re-subscribe on the next RPC call; and retained state
                 # does not survive a broker restart (persistence is off), so
-                # replay every device's retained topics.
-                rpc.subscribes.clear()
-                for dev, _act in entries:
-                    dev.republish()
+                # replay every device's retained topics. Guarded like the poll
+                # below: a paho/mqttrpc hiccup here must not take the loop down.
+                try:
+                    rpc.subscribes.clear()
+                    for dev, _act in entries:
+                        dev.republish()
+                except Exception as exc:  # pylint: disable=broad-except
+                    logger.warning("reconnect recovery failed: %s", exc)
             for dev, act in entries:
                 if stop.is_set():
                     break  # a signal mid-pass: stop now so the finally-block cleanup runs
