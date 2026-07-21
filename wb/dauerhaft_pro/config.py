@@ -64,6 +64,7 @@ def _build_entry(raw: dict, index: int) -> ActuatorConfig:
             address=int(raw["rs485_address"]),
             port=PortConfig(path=raw["port"]),
             slat_angle_mode=raw.get("slat_angle_mode", "none"),
+            reverse=bool(raw.get("reverse", False)),
         )
     except KeyError as err:
         raise ConfigError(f"device #{index}: missing required field {err}") from err

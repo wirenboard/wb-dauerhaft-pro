@@ -30,7 +30,7 @@ from wb_common.mqtt_client import DEFAULT_BROKER_URL, MQTTClient
 
 from . import config as cfgmod
 from .commands import CommandQueue
-from .controls import DeviceControls, _fmt_address, publish_state
+from .controls import DeviceControls, publish_state
 from .device import Actuator
 from .mqtt import DRIVER_NAME, WbDevice, build_error_topic
 from .transport import SerialTransport
@@ -168,9 +168,9 @@ def main() -> int:
         dev.set_error("r")  # start unavailable until the first successful poll clears it
         entries.append((dev, actuator, controls))
         logger.info(
-            "configured %s (addr %s) on %s",
+            "configured %s (addr 0x%02X) on %s",
             dev_cfg.device_id,
-            _fmt_address(dev_cfg.address),
+            dev_cfg.address,
             dev_cfg.port.path,
         )
 

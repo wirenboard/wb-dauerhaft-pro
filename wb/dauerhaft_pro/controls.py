@@ -43,24 +43,26 @@ MAX_ASSIGNABLE_ADDRESS = 0xFE
 # whatever the config loader let through.
 _SCALE_COMPRESSED = {"none": False, "direct": False, "compressed": True}
 
-# Human-readable texts for the position markers (values are not translated by
-# the web UI, so they are English-only like every other published value).
+# Human-readable position markers. Control VALUES are not translated by the web
+# UI, so — unlike code text, which stays English — these are Russian to match
+# the panel language.
 _LIMIT_MARKERS = {
-    protocol.POSITION_BOTH_LIMITS_UNSET: "limits not set",
-    protocol.POSITION_LOWER_LIMIT_UNSET: "bottom limit not set",
-    protocol.POSITION_UPPER_LIMIT_UNSET: "top limit not set",
+    protocol.POSITION_BOTH_LIMITS_UNSET: "пределы не заданы",
+    protocol.POSITION_LOWER_LIMIT_UNSET: "нижний предел не задан",
+    protocol.POSITION_UPPER_LIMIT_UNSET: "верхний предел не задан",
 }
 
 
 def _fmt_address(address: int) -> str:
     """
-    Format an RS-485 address as the driver's canonical ``0xHH`` string.
+    Format an RS-485 address as a decimal string for the read-only indicator.
 
-    Used for both the retained ``address`` control value and the startup log;
-    the control's initial value and every poll update must format identically,
-    or the retained-dedup would republish the address on every cycle.
+    Decimal to match the "New Address" input field, so the shown address and a
+    value being entered are directly comparable. The control's initial value and
+    every poll update must format identically, or the retained-dedup would
+    republish the address on every cycle.
     """
-    return f"0x{address:02X}"
+    return str(address)
 
 
 def publish_state(dev, actuator) -> None:
@@ -87,10 +89,11 @@ class DeviceControls:
         self._dev = dev
         self._actuator = actuator
         self._queue = queue
-        self._reverse = False
+        self._reverse = actuator.cfg.reverse  # persisted in config; the switch overrides at runtime
         self._addr_target = actuator.cfg.address  # last value of the input field
         self._move_key = ("move", actuator.cfg.device_id)
         self._addr_key = ("addr", actuator.cfg.device_id)
+        self._waypoint_key = ("waypoint", actuator.cfg.device_id)
         try:
             self._compressed = _SCALE_COMPRESSED[actuator.cfg.slat_angle_mode]
         except KeyError:
@@ -142,7 +145,15 @@ class DeviceControls:
                 self._on_addr_set,
                 button,
             ),
-            ("reverse", "switch", ORDER_REVERSE, "Реверс", "Reverse", self._on_reverse, {"initial": 0}),
+            (
+                "reverse",
+                "switch",
+                ORDER_REVERSE,
+                "Реверс",
+                "Reverse",
+                self._on_reverse,
+                {"initial": 1 if self._reverse else 0},
+            ),
             (
                 "point3_set",
                 "pushbutton",
@@ -168,8 +179,8 @@ class DeviceControls:
                     "slat_angle",
                     "range",
                     ORDER_SLAT_ANGLE,
-                    "Угол ламелей",
-                    "Slat Angle",
+                    "Угол ламелей, °",
+                    "Slat Angle, °",
                     self._on_slat_angle,
                     {"min_value": 0, "max_value": protocol.ANGLE_MAX, "initial": None},
                 )
@@ -201,7 +212,8 @@ class DeviceControls:
         if pos is not None:
             text = _LIMIT_MARKERS.get(pos)
             if text is None:
-                text = str(100 - pos if self._reverse and pos <= 100 else pos)
+                shown = 100 - pos if self._reverse and pos <= 100 else pos
+                text = f"{shown} %"
             self._dev.set_value("position_current", text)
         if self._actuator.cfg.slat_angle_mode == "none":
             return
@@ -210,8 +222,9 @@ class DeviceControls:
             # Clamp: a raw byte outside the scale (e.g. a marker) must not push
             # an out-of-range value into the 0..180 range control.
             degrees = max(0, min(protocol.ANGLE_MAX, protocol.raw_to_angle(raw, self._compressed)))
-            self._dev.set_value("slat_angle_current", str(degrees))
-            self._dev.set_value("slat_angle", str(degrees))
+            # Only the read-only indicator — writing the live angle into the
+            # slat_angle range would fight the user's setpoint while the motor moves.
+            self._dev.set_value("slat_angle_current", f"{degrees} °")
 
     # ------------------------------------------------------------------ #
     # command callbacks (paho signature: client, userdata, message)
@@ -240,8 +253,10 @@ class DeviceControls:
     def _on_point3_set(self, *_):
         """
         Queue storing the current position as the waypoint (setting priority).
+
+        Keyed so repeated presses coalesce to a single flash write.
         """
-        self._queue.put(PRIO_SETTING, None, self._actuator.set_third_point)
+        self._queue.put(PRIO_SETTING, self._waypoint_key, self._actuator.set_third_point)
 
     def _on_point3_go(self, *_):
         """

@@ -53,6 +53,7 @@ class ActuatorConfig:
     address: int
     port: PortConfig
     slat_angle_mode: str = "none"  # none (no slat controls) | direct | compressed
+    reverse: bool = False  # UI-only: swap open/close and mirror the shown position
 
 
 class Actuator:
@@ -121,8 +122,11 @@ class Actuator:
         Read the position: 0..100, a limits-unset marker, or None when silent
         or refused. The subcommand is checked, so a delayed reply to a different
         query cannot be mistaken for a position.
+
+        Liveness-neutral (count_misses=False): the periodic telemetry read must
+        not drive the offline hysteresis — that is the ping's job.
         """
-        resp = self._exchange(protocol.query_position(self.cfg.address))
+        resp = self._exchange(protocol.query_position(self.cfg.address), count_misses=False)
         if isinstance(resp, protocol.QueryResponse) and resp.sub == protocol.QuerySub.POSITION:
             return resp.value
         return None
@@ -130,8 +134,10 @@ class Actuator:
     def query_angle_raw(self) -> Optional[int]:
         """
         Read the raw slat angle byte; None when silent or refused (error reply).
+
+        Liveness-neutral (count_misses=False), like :meth:`query_position`.
         """
-        resp = self._exchange(protocol.query_angle(self.cfg.address))
+        resp = self._exchange(protocol.query_angle(self.cfg.address), count_misses=False)
         if isinstance(resp, protocol.QueryResponse) and resp.sub == protocol.QuerySub.ANGLE:
             return resp.value
         return None
@@ -165,7 +171,13 @@ class Actuator:
         """
         Send a set-address frame to *target_address* and confirm the ack.
 
-        *follow* (unicast only) makes the runtime config track the new address.
+        *follow* carries three linked meanings, all true only for a unicast
+        change to the device's own current address:
+          * config-follow — the runtime ``cfg.address`` tracks the new address;
+          * address filter — the reply must come FROM *new_address* (spec 3.1);
+            a learning write (follow False) accepts a reply from any address;
+          * liveness — a unicast exchange counts toward the offline hysteresis;
+            a learning write does not (its timeout is an expected outcome).
         """
         if new_address in (protocol.BROADCAST_ADDRESS, protocol.LEARNING_ADDRESS):
             raise ValueError(
@@ -243,14 +255,19 @@ class Actuator:
             )
         except DeviceTimeout as exc:
             # A silent offline is hard to diagnose (a wrong address just looks
-            # dead). Log it like a transport error so the reason is visible; this
-            # repeats each poll while the device stays unreachable.
-            logger.warning("%s: not responding: %s", self.cfg.device_id, exc)
+            # dead), so log the reason. Liveness-neutral reads (telemetry, a
+            # learning write) EXPECT silence, so keep those at DEBUG — only a
+            # liveness exchange (the ping) warns and repeats each poll.
+            (logger.warning if count_misses else logger.debug)(
+                "%s: not responding: %s", self.cfg.device_id, exc
+            )
             if count_misses:
                 self._register_miss()
             return None
         except TransportError as exc:
-            logger.warning("%s: transport error: %s", self.cfg.device_id, exc)
+            (logger.warning if count_misses else logger.debug)(
+                "%s: transport error: %s", self.cfg.device_id, exc
+            )
             if count_misses:
                 self._register_miss()
             return None
@@ -258,7 +275,8 @@ class Actuator:
             frame = protocol.parse_frame(reply)
         except protocol.ProtocolError as exc:
             logger.warning("%s: bad frame %s: %s", self.cfg.device_id, reply.hex(), exc)
-            self._register_miss()
+            if count_misses:
+                self._register_miss()
             return None
         # On a shared bus the reply must come from the addressed device and answer
         # the request we sent. A refusal (ERROR) may instead come from the device's
@@ -280,18 +298,23 @@ class Actuator:
                 frame.address,
                 frame.function,
             )
-            self._register_miss()
+            if count_misses:
+                self._register_miss()
             return None
         resp = protocol.decode_response(frame)
-        # The device answered (so it is online), but an error frame means it
-        # rejected the command — surface it instead of silently ignoring it.
+        # The device answered, but an error frame means it rejected the command —
+        # surface it instead of silently ignoring it.
         if isinstance(resp, protocol.ErrorResponse):
             logger.warning("%s: device error response, code 0x%02X", self.cfg.device_id, resp.code)
-        if not self.online:
-            # visible at the default log level, symmetric to the offline warning
-            logger.warning("%s: back online", self.cfg.device_id)
-        self._miss_count = 0
-        self.online = True
+        # Liveness-neutral operations (count_misses False) must not flip THIS
+        # actuator online: a telemetry reply is expected, and a learning-write ack
+        # proves SOME motor took the address, not that this device answered.
+        if count_misses:
+            if not self.online:
+                # visible at the default log level, symmetric to the offline warning
+                logger.warning("%s: back online", self.cfg.device_id)
+            self._miss_count = 0
+            self.online = True
         return resp
 
     def _register_miss(self):
