@@ -21,6 +21,10 @@ class RecordingClient:
 
 
 def test_unchanged_retained_values_are_not_republished():
+    """
+    Неизменённые retained-значения не публикуются повторно; изменённое значение
+    уходит один раз с retain.
+    """
     client = RecordingClient()
     dev = WbDevice(client, "dauerhaft_test", "Тест")
     dev.add_control("address", "text", 5, readonly=True, initial="0x5F")
@@ -36,6 +40,10 @@ def test_unchanged_retained_values_are_not_republished():
 
 
 def test_republish_restores_every_topic():
+    """
+    republish() переиздаёт все retained-топики устройства — восстановление после
+    рестарта брокера, несмотря на дедуп.
+    """
     # after a broker restart the retained state may be gone: republish() must
     # replay the full device, dedup notwithstanding
     client = RecordingClient()

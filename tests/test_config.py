@@ -31,6 +31,9 @@ def _load_without_schema(tmp_path, path):
 
 
 def test_config_parses_with_unit_conversion(tmp_path):
+    """
+    Поля устройства читаются корректно, интервал из мс в конфиге превращается в секунды.
+    """
     path = _write(tmp_path, {"debug": True, "connection_check_interval_ms": 2500, "devices": [DEVICE]})
     conf = _load_without_schema(tmp_path, path)
     assert conf.debug is True
@@ -40,6 +43,9 @@ def test_config_parses_with_unit_conversion(tmp_path):
 
 
 def test_duplicate_device_id_rejected(tmp_path):
+    """
+    Два одинаковых device_id → ConfigError (проверка, которую схема выразить не может).
+    """
     path = _write(tmp_path, {"devices": [DEVICE, dict(DEVICE, rs485_address=11)]})
     with pytest.raises(config.ConfigError, match="must be unique"):
         _load_without_schema(tmp_path, path)
@@ -63,6 +69,11 @@ def test_duplicate_device_id_rejected(tmp_path):
     ],
 )
 def test_skipped_schema_guards_reject_bad_config(tmp_path, content, match):
+    """
+    Ручные startup-guard'ы (метасимвол в id, адрес вне диапазона, отсутствующее
+    поле, не-список devices, интервал < 100) отбивают битый конфиг, когда
+    валидация схемой была пропущена.
+    """
     # These back up the schema for the case it was skipped (dev box or broken
     # install); on a healthy controller the schema catches them first.
     path = _write(tmp_path, content)

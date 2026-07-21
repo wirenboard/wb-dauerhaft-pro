@@ -96,8 +96,8 @@ def _validate_against_schema(raw, path: str, schema_path: str) -> None:
         logger.warning("python3-jsonschema is not installed; skipping config schema validation")
         return
     try:
-        with open(schema_path, "r", encoding="utf-8") as sf:
-            schema = json.load(sf)
+        with open(schema_path, "r", encoding="utf-8") as schema_file:
+            schema = json.load(schema_file)
     except FileNotFoundError:
         logger.debug("schema not found at %s, skipping validation", schema_path)
         return
@@ -124,8 +124,8 @@ def load_config(path: str = CONFIG_PATH, schema_path: str = SCHEMA_PATH) -> Conf
     Load and parse the config. Raises :class:`ConfigError` on any problem.
     """
     try:
-        with open(path, "r", encoding="utf-8") as fh:
-            raw = json.load(fh)
+        with open(path, "r", encoding="utf-8") as config_file:
+            raw = json.load(config_file)
     except UnicodeDecodeError as err:
         # a hand-edited or backup-restored config saved in a non-UTF-8 encoding
         # (Cyrillic names are common here) must refuse cleanly, not traceback
@@ -143,7 +143,7 @@ def load_config(path: str = CONFIG_PATH, schema_path: str = SCHEMA_PATH) -> Conf
     raw_devices = raw.get("devices", [])
     if not isinstance(raw_devices, list):
         raise ConfigError(f"{path}: 'devices' must be an array")
-    devices = [_build_entry(d, i) for i, d in enumerate(raw_devices)]
+    devices = [_build_entry(raw_dev, index) for index, raw_dev in enumerate(raw_devices)]
     # The schema cannot express uniqueness. Duplicate device ids would make two
     # actuators fight over one set of /devices/<id>/... topics, so refuse the
     # config. RS-485 addresses MAY repeat — the protocol allows identical

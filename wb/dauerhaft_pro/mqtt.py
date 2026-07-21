@@ -36,7 +36,7 @@ class WbDevice:
     """
 
     def __init__(self, client, device_id: str, title: str, driver: str = DRIVER_NAME) -> None:
-        self._c = client
+        self._client = client
         self.id = device_id
         self._base = f"/devices/{device_id}"
         self._controls = []
@@ -79,15 +79,15 @@ class WbDevice:
         """
         topic = f"{self._base}/controls/{name}/on"
         self._on_topics.append(topic)
-        self._c.subscribe(topic)
-        self._c.message_callback_add(topic, callback)
+        self._client.subscribe(topic)
+        self._client.message_callback_add(topic, callback)
 
     def resubscribe(self) -> None:
         """
         Re-subscribe all command topics (a broker reconnect drops them).
         """
         for topic in self._on_topics:
-            self._c.subscribe(topic)
+            self._client.subscribe(topic)
 
     def set_value(self, name: str, value) -> None:
         """
@@ -128,15 +128,15 @@ class WbDevice:
         after a reconnect. The cache stays valid, so it is not rebuilt.
         """
         for topic, value in list(self._last.items()):
-            self._c.publish(topic, value, retain=True)
+            self._client.publish(topic, value, retain=True)
 
     def remove(self) -> None:
         """
         Unsubscribe commands and clear all retained topics (called on shutdown).
         """
         for topic in self._on_topics:
-            self._c.unsubscribe(topic)
-            self._c.message_callback_remove(topic)
+            self._client.unsubscribe(topic)
+            self._client.message_callback_remove(topic)
         for name in self._controls:
             self._pub(f"{self._base}/controls/{name}", None)
             self._pub(f"{self._base}/controls/{name}/meta", None)
@@ -158,4 +158,4 @@ class WbDevice:
         if topic in self._last and self._last[topic] == value:
             return
         self._last[topic] = value
-        self._c.publish(topic, value, retain=True)
+        self._client.publish(topic, value, retain=True)

@@ -35,6 +35,10 @@ class FailingRpc:
     ids=["silent-device", "rpc-timeout-legacy-code", "rpc-queue-expiry", "real-port-fault"],
 )
 def test_rpc_errors_are_classified(code, data, expected):
+    """
+    Таймауты (−32000 «timed out», −32100, −32600) → DeviceTimeout; реальная
+    неисправность порта → TransportError, а не «устройство молчит».
+    """
     transport = SerialTransport(FailingRpc(MQTTRPCError("Server error", code, data)))
     with pytest.raises(expected) as excinfo:
         transport.transceive(PORT, b"\x5f\x01\x01\x01\x83\xa0", 7)
