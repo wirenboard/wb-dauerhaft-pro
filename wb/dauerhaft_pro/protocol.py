@@ -36,6 +36,9 @@ logger = logging.getLogger(__name__)
 
 BROADCAST_ADDRESS = 0x00  # section 3.1.1: universal address, reaches every motor
 LEARNING_ADDRESS = 0xFF  # section 3.1: reaches the motor whose button opened the ~1 min learning window
+# Highest address a motor may actually hold: 0x00 (broadcast) and 0xFF (learning)
+# are reserved, so a device stored at either would never be individually reachable.
+MAX_DEVICE_ADDRESS = 0xFE
 
 POSITION_DOWN = 0x00  # fully down / closed
 POSITION_UP = 0x64  # 100 %, fully up / open

@@ -34,10 +34,6 @@ ORDER_WAYPOINT_GO = 9
 ORDER_SLAT_ANGLE = 10
 ORDER_SLAT_ANGLE_CURRENT = 11
 
-# The highest address assignable to a motor: 0x00 is broadcast and 0xFF is the
-# learning-window service address, so a stored address must stay below both.
-MAX_ASSIGNABLE_ADDRESS = 0xFE
-
 # Whether the wire scale is compressed, per the config's slat_angle_mode. A
 # lookup instead of string comparisons: an unknown mode fails at startup here,
 # whatever the config loader let through.
@@ -134,7 +130,7 @@ class DeviceControls:
                 "Новый адрес",
                 "New Address",
                 self._on_addr_target,
-                {"min_value": 1, "max_value": MAX_ASSIGNABLE_ADDRESS, "initial": self._addr_target},
+                {"min_value": 1, "max_value": protocol.MAX_DEVICE_ADDRESS, "initial": self._addr_target},
             ),
             (
                 "address_set",
@@ -276,7 +272,7 @@ class DeviceControls:
         Set New Address button applies it.
         """
         target = self._parse_int_payload(msg)
-        if target is None or not 1 <= target <= MAX_ASSIGNABLE_ADDRESS:
+        if target is None or not 1 <= target <= protocol.MAX_DEVICE_ADDRESS:
             return
         self._addr_target = target
         self._dev.set_value("set_address", target)

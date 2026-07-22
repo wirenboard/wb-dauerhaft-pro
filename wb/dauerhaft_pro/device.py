@@ -183,8 +183,8 @@ class Actuator:
             raise ValueError(
                 f"refusing to assign the reserved address 0x{new_address:02X} (broadcast/learning)"
             )
-        if not 1 <= new_address <= 0xFE:
-            raise ValueError("address must be 1..254")
+        if not 1 <= new_address <= protocol.MAX_DEVICE_ADDRESS:
+            raise ValueError(f"address must be 1..{protocol.MAX_DEVICE_ADDRESS}")
         resp = self._exchange(
             protocol.set_address(target_address, new_address),
             # Spec 3.1: the ack comes FROM the new address. A learning write gets
@@ -303,9 +303,12 @@ class Actuator:
             return None
         resp = protocol.decode_response(frame)
         # The device answered, but an error frame means it rejected the command —
-        # surface it instead of silently ignoring it.
+        # surface it. WARNING for a liveness exchange (the ping); a neutral read
+        # the device rejects each poll (telemetry) stays at DEBUG so it can't spam.
         if isinstance(resp, protocol.ErrorResponse):
-            logger.warning("%s: device error response, code 0x%02X", self.cfg.device_id, resp.code)
+            (logger.warning if count_misses else logger.debug)(
+                "%s: device error response, code 0x%02X", self.cfg.device_id, resp.code
+            )
         # Liveness-neutral operations (count_misses False) must not flip THIS
         # actuator online: a telemetry reply is expected, and a learning-write ack
         # proves SOME motor took the address, not that this device answered.

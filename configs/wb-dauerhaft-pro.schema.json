@@ -53,7 +53,7 @@
                     "type": "integer",
                     "title": "rs485_address_title",
                     "minimum": 1,
-                    "maximum": 255,
+                    "maximum": 254,
                     "propertyOrder": 5
                 },
                 "port": {
@@ -161,7 +161,7 @@
             "slat_angle_mode_direct": "Direct (0–180° as is)",
             "slat_angle_mode_compressed": "Compressed (0–180° mapped to 36–144)",
             "reverse_title": "Reverse",
-            "reverse_description": "Start/end position display in the widget",
+            "reverse_description": "For an actuator mounted the other way round: swaps Open/Close and mirrors the shown position",
             "connection_check_interval_title": "Connection Check Interval, ms",
             "debug_title": "Enable Debug Logging"
         },
@@ -188,7 +188,7 @@
             "slat_angle_mode_direct": "Прямая (0–180° как есть)",
             "slat_angle_mode_compressed": "Сжатая (0–180° в 36–144)",
             "reverse_title": "Реверс",
-            "reverse_description": "Отображение начальной и конечной позиции в виджете",
+            "reverse_description": "Для привода, смонтированного в обратную сторону: меняет местами «Открыть»/«Закрыть» и зеркалит показ позиции",
             "connection_check_interval_title": "Интервал проверки связи, мс",
             "debug_title": "Включить отладочные сообщения"
         }

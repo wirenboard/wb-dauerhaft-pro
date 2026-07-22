@@ -18,6 +18,7 @@ try:
 except ImportError:  # absent on a dev box; the package declares it as a hard dependency
     jsonschema = None
 
+from . import protocol
 from .device import ActuatorConfig
 from .transport import PortConfig
 
@@ -70,11 +71,14 @@ def _build_entry(raw: dict, index: int) -> ActuatorConfig:
         raise ConfigError(f"device #{index}: missing required field {err}") from err
     except (TypeError, ValueError) as err:
         raise ConfigError(f"device #{index}: invalid field value: {err}") from err
-    # The schema limits the address to 1..255 too; the guard matters when schema
-    # validation was skipped — a bad address must fail at startup, not at the
-    # first exchange.
-    if not 1 <= entry.address <= 0xFF:
-        raise ConfigError(f"device #{index}: rs485_address must be 1..255, got {entry.address}")
+    # The schema caps the address at MAX_DEVICE_ADDRESS too; the guard matters
+    # when schema validation was skipped. 0x00 (broadcast) and 0xFF (learning)
+    # are reserved, so a device stored there would never be individually
+    # reachable — reject it at startup, not silently poll a dead address.
+    if not 1 <= entry.address <= protocol.MAX_DEVICE_ADDRESS:
+        raise ConfigError(
+            f"device #{index}: rs485_address must be 1..{protocol.MAX_DEVICE_ADDRESS}, got {entry.address}"
+        )
     # Same reasoning for the id (schema pattern ^[^$#+/]+$): it goes straight
     # into topic names, so '/' would write into — and on shutdown clear —
     # another device's topic tree, and '+'/'#' would corrupt the command
