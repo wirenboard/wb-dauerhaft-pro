@@ -55,7 +55,7 @@ def test_duplicate_device_id_rejected(tmp_path):
     "content,match",
     [
         ({"devices": [dict(DEVICE, device_id="bad/id")]}, "device_id"),
-        ({"devices": [dict(DEVICE, rs485_address=300)]}, "1..255"),
+        ({"devices": [dict(DEVICE, rs485_address=300)]}, "1..254"),
         ({"devices": [{k: v for k, v in DEVICE.items() if k != "port"}]}, "missing required field"),
         ({"devices": "oops"}, "must be an array"),
         ({"devices": [DEVICE], "connection_check_interval_ms": 0}, ">= 100"),

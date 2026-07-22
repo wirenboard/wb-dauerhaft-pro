@@ -2,9 +2,10 @@
 Wire protocol codec for Dauerhaft PRO RS-485 actuators (supported subset).
 
 Implements just enough of the "Profkarniz Dauerhaft PRO RS-485 v2.3" protocol
-for the driver: set the device address and drive the motor (up / down /
-stop). This module is pure (no I/O) so it can be unit-tested against captured
-frames.
+for the driver: drive the motor (up / down / stop / slat angle / waypoint),
+read position and angle, and set the device address (unicast or via the
+button-learning window). This module is pure (no I/O) so it can be
+unit-tested against captured frames.
 
 Frame layout (both directions), section 2 of the spec::
 
@@ -34,13 +35,26 @@ logger = logging.getLogger(__name__)
 # --------------------------------------------------------------------------- #
 
 BROADCAST_ADDRESS = 0x00  # section 3.1.1: universal address, reaches every motor
+LEARNING_ADDRESS = 0xFF  # section 3.1: reaches the motor whose button opened the ~1 min learning window
+# Highest address a motor may actually hold: 0x00 (broadcast) and 0xFF (learning)
+# are reserved, so a device stored at either would never be individually reachable.
+MAX_DEVICE_ADDRESS = 0xFE
 
 POSITION_DOWN = 0x00  # fully down / closed
 POSITION_UP = 0x64  # 100 %, fully up / open
 
+# Markers a position query returns instead of 0..100 % while limits are missing.
+POSITION_BOTH_LIMITS_UNSET = 0xFC
+POSITION_LOWER_LIMIT_UNSET = 0xFD
+POSITION_UPPER_LIMIT_UNSET = 0xFE
+THIRD_POINT_UNSET = 0xF8  # waypoint-control reply when no waypoint is stored
+
+ANGLE_MAX = 180  # slat angle in degrees; both wire scales expose 0..180 to the user
+_COMPRESSED_BASE, _COMPRESSED_SPAN = 36, 108  # compressed scale: raw 36..144 <-> 0..180 deg
+
 MIN_FRAME_LEN = 5  # addr + func + len + the 2 CRC bytes (data may be empty)
 
-SETTING_OK = 0x0A  # positive status byte in a set-address reply
+SETTING_OK = 0x0A  # positive status byte in a set-address / setting reply
 ERROR_MARKER = 0xF0  # first data byte of an error report (function 0x00)
 
 
@@ -51,7 +65,8 @@ class Function(IntEnum):
 
     ERROR = 0x00  # 3.6  error report from slave: data = [0xF0, code]
     QUERY = 0x01  # 3.2  read a value (subcommand in first data byte)
-    CONTROL = 0x04  # 3.4  motion control (move / stop)
+    SETTING = 0x02  # 3.3  write a setting (subcommand in first data byte)
+    CONTROL = 0x04  # 3.4  motion control (move / stop / angle / waypoint)
     ACTIVE_REPORT = 0x08  # 3.5  unsolicited state report on movement (default-on on some motors)
     SET_ADDRESS = 0x10  # 3.1  change device address
 
@@ -62,6 +77,8 @@ class QuerySub(IntEnum):
     """
 
     ADDRESS = 0x01  # read the device's own address (also used as a liveness ping)
+    POSITION = 0x02  # read the current position (0..100 % or a limits-unset marker)
+    ANGLE = 0x04  # read the current slat angle (raw byte)
 
 
 class ControlSub(IntEnum):
@@ -71,6 +88,16 @@ class ControlSub(IntEnum):
 
     MOVE = 0x01  # value: 0x00 down, 0x64 up
     STOP = 0x02  # value: 0x00
+    THIRD_POINT = 0x03  # value: 0x00; drive to the stored waypoint
+    ANGLE = 0x04  # value: raw angle byte
+
+
+class SettingSub(IntEnum):
+    """
+    Subcommands for :attr:`Function.SETTING` (first data byte), supported subset.
+    """
+
+    SET_THIRD_POINT = 0x05  # store the current position as the waypoint
 
 
 # --------------------------------------------------------------------------- #
@@ -213,7 +240,7 @@ def parse_frame(raw: Union[bytes, Sequence[int]]) -> Frame:
 
 
 # --------------------------------------------------------------------------- #
-# Request builders (address + move up/down + stop)
+# Request builders
 # --------------------------------------------------------------------------- #
 
 
@@ -245,16 +272,72 @@ def control_stop(address: int) -> bytes:
     return build_frame(address, Function.CONTROL, bytes([ControlSub.STOP, 0x00]))
 
 
+def control_angle(address: int, raw_angle: int) -> bytes:
+    """
+    Rotate the slats to *raw_angle* (the wire byte; see :func:`angle_to_raw`).
+    """
+    _check_byte("raw_angle", raw_angle)
+    return build_frame(address, Function.CONTROL, bytes([ControlSub.ANGLE, raw_angle]))
+
+
+def control_third_point(address: int) -> bytes:
+    """
+    Drive to the stored waypoint; :data:`THIRD_POINT_UNSET` in the reply = none stored.
+    """
+    return build_frame(address, Function.CONTROL, bytes([ControlSub.THIRD_POINT, 0x00]))
+
+
+def set_third_point(address: int) -> bytes:
+    """
+    Store the current position as the waypoint (setting 0x05, no arguments).
+    """
+    return build_frame(address, Function.SETTING, bytes([SettingSub.SET_THIRD_POINT]))
+
+
+def query_position(address: int) -> bytes:
+    """
+    Read the current position: 0..100 %, or a limits-unset marker byte.
+    """
+    return build_frame(address, Function.QUERY, bytes([QuerySub.POSITION]))
+
+
+def query_angle(address: int) -> bytes:
+    """
+    Read the current slat angle (raw byte; see :func:`raw_to_angle`).
+    """
+    return build_frame(address, Function.QUERY, bytes([QuerySub.ANGLE]))
+
+
 def set_address(address: int, new_address: int) -> bytes:
     """
     Change the device address (function 0x10) to *new_address*.
 
-    Sent to the device's current *address* (unicast), to
-    :data:`BROADCAST_ADDRESS` (all motors), or to a motor put into
-    independent-setting mode by its button (section 3.1).
+    Sent to the device's current *address* (unicast) or to
+    :data:`LEARNING_ADDRESS` for a motor put into independent-setting mode by
+    its button (section 3.1).
     """
     _check_byte("new_address", new_address)
     return build_frame(address, Function.SET_ADDRESS, bytes([new_address]))
+
+
+def angle_to_raw(degrees: int, compressed: bool) -> int:
+    """
+    User degrees (0..180) to the wire byte: direct as-is, compressed to 36..144.
+    """
+    if not 0 <= degrees <= ANGLE_MAX:
+        raise ValueError(f"angle must be 0..{ANGLE_MAX}, got {degrees}")
+    if not compressed:
+        return degrees
+    return _COMPRESSED_BASE + round(degrees * _COMPRESSED_SPAN / ANGLE_MAX)
+
+
+def raw_to_angle(raw: int, compressed: bool) -> int:
+    """
+    Wire byte back to user degrees; the inverse of :func:`angle_to_raw`.
+    """
+    if not compressed:
+        return raw
+    return round((raw - _COMPRESSED_BASE) * ANGLE_MAX / _COMPRESSED_SPAN)
 
 
 # --------------------------------------------------------------------------- #
@@ -271,6 +354,7 @@ class ErrorResponse:
 class QueryResponse:
     sub: Optional[int]
     address: Optional[int] = None
+    value: Optional[int] = None  # the queried byte (position / angle / address)
 
 
 @dataclass
@@ -286,6 +370,12 @@ class SetAddressResponse:
 
 
 @dataclass
+class SettingResponse:
+    sub: Optional[int]
+    ok: bool
+
+
+@dataclass
 class ActiveReport:
     """
     An unsolicited movement report (function 0x08). Recognized so it does not
@@ -296,7 +386,9 @@ class ActiveReport:
 
 
 # Any decoded response. The alias annotates what decode_response can return.
-Response = Union[ErrorResponse, QueryResponse, ControlResponse, SetAddressResponse, ActiveReport]
+Response = Union[
+    ErrorResponse, QueryResponse, ControlResponse, SetAddressResponse, SettingResponse, ActiveReport
+]
 
 
 def _decode_error(frame: Frame) -> ErrorResponse:
@@ -308,10 +400,14 @@ def _decode_error(frame: Frame) -> ErrorResponse:
 
 def _decode_query(frame: Frame) -> QueryResponse:
     """
-    Decode a query response; the address is present for the ADDRESS subcommand.
+    Decode a query response; the second data byte carries the queried value.
     """
-    addr = frame.data[1] if len(frame.data) >= 2 and frame.subcommand == QuerySub.ADDRESS else None
-    return QueryResponse(sub=frame.subcommand, address=addr)
+    val = frame.data[1] if len(frame.data) >= 2 else None
+    return QueryResponse(
+        sub=frame.subcommand,
+        address=val if frame.subcommand == QuerySub.ADDRESS else None,
+        value=val,
+    )
 
 
 def _decode_control(frame: Frame) -> ControlResponse:
@@ -331,6 +427,13 @@ def _decode_set_address(frame: Frame) -> SetAddressResponse:
     )
 
 
+def _decode_setting(frame: Frame) -> SettingResponse:
+    """
+    Decode a setting ack: data = [subcommand, 0x0A on success].
+    """
+    return SettingResponse(sub=frame.subcommand, ok=len(frame.data) >= 2 and frame.data[1] == SETTING_OK)
+
+
 def _decode_active_report(frame: Frame) -> ActiveReport:
     """
     Wrap an unsolicited active report as-is.
@@ -341,6 +444,7 @@ def _decode_active_report(frame: Frame) -> ActiveReport:
 DECODERS: Dict[int, Callable[[Frame], Response]] = {
     Function.ERROR: _decode_error,
     Function.QUERY: _decode_query,
+    Function.SETTING: _decode_setting,
     Function.CONTROL: _decode_control,
     Function.SET_ADDRESS: _decode_set_address,
     Function.ACTIVE_REPORT: _decode_active_report,
