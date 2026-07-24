@@ -32,6 +32,11 @@ MQTT-драйвер Wiren Board для приводов штор и жалюзи
 
 <img width="899" height="880" alt="image" src="https://github.com/user-attachments/assets/b474f801-900a-4102-bd81-80417759bcbd" />
 
+В зависимости от настроек появится виртуальное устройство с настройками угла
+ламелей или без них:
+
+<img src="docs/Dauerhaft_Pro_RS485_widget.png" width="49%" alt="Виджет без ламелей" /> <img src="docs/Dauerhaft_Pro_RS485_widget_slats.png" width="49%" alt="Виджет с ламелями" />
+
 ## Сервис
 
 Сервис `wb-dauerhaft-pro` стартует автоматически после установки. По кнопке
