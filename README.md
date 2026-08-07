@@ -1,6 +1,7 @@
 # wb-dauerhaft-pro
 
 MQTT-драйвер Wiren Board для приводов штор и жалюзи **Dauerhaft PRO RS-485**.
+Драйвер разработан на Python и использует [RPC wb-mqtt-serial](https://github.com/wirenboard/wb-mqtt-serial).
 
 Приводы штор используют протокол «Профкарниз Dauerhaft PRO RS-485 v2.3».
 Для каждого привода из конфигурации драйвер публикует в веб-интерфейсе
