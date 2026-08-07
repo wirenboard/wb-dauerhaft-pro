@@ -1,3 +1,4 @@
 buildDebArchAll defaultRunLintian: true,
                 defaultRunPythonChecks: true,
-                defaultRunCoverage: true
+                defaultRunCoverage: true,
+                defaultAngryPylint: true
