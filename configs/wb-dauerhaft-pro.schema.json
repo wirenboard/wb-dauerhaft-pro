@@ -1,0 +1,196 @@
+{
+    "$schema": "http://json-schema.org/draft-04/schema#",
+    "type": "object",
+    "title": "dauerhaft_title",
+    "configFile": {
+        "path": "/etc/wb-dauerhaft-pro.conf",
+        "service": "wb-dauerhaft-pro"
+    },
+    "definitions": {
+        "device": {
+            "type": "object",
+            "title": "Actuator",
+            "headerTemplate": "{{self.device_name}}",
+            "properties": {
+                "device_id": {
+                    "type": "string",
+                    "title": "device_id_title",
+                    "pattern": "^[^$#+/]+$",
+                    "minLength": 1,
+                    "propertyOrder": 1,
+                    "options": {
+                        "patternmessage": "device_id_pattern_message"
+                    }
+                },
+                "device_name": {
+                    "type": "string",
+                    "title": "device_name_title",
+                    "description": "device_name_description",
+                    "minLength": 1,
+                    "propertyOrder": 2
+                },
+                "curtain_type": {
+                    "type": "string",
+                    "title": "curtain_type_title",
+                    "enum": ["roller", "sliding"],
+                    "default": "roller",
+                    "propertyOrder": 3,
+                    "options": {
+                        "enum_titles": ["curtain_type_roller", "curtain_type_sliding"]
+                    }
+                },
+                "learning_type": {
+                    "type": "string",
+                    "title": "learning_type_title",
+                    "enum": ["physical_button", "widget_command"],
+                    "default": "physical_button",
+                    "propertyOrder": 4,
+                    "options": {
+                        "enum_titles": ["learning_type_button", "learning_type_widget"]
+                    }
+                },
+                "rs485_address": {
+                    "type": "integer",
+                    "title": "rs485_address_title",
+                    "minimum": 1,
+                    "maximum": 254,
+                    "propertyOrder": 5
+                },
+                "port": {
+                    "type": "string",
+                    "title": "port_title",
+                    "description": "port_description",
+                    "enum": [
+                        "/dev/ttyRS485-1",
+                        "/dev/ttyRS485-2",
+                        "/dev/ttyMOD1",
+                        "/dev/ttyMOD2",
+                        "/dev/ttyMOD3",
+                        "/dev/ttyMOD4"
+                    ],
+                    "default": "/dev/ttyRS485-2",
+                    "propertyOrder": 6
+                },
+                "slat_angle_mode": {
+                    "type": "string",
+                    "title": "slat_angle_mode_title",
+                    "description": "slat_angle_mode_description",
+                    "enum": ["none", "direct", "compressed"],
+                    "default": "none",
+                    "propertyOrder": 7,
+                    "options": {
+                        "enum_titles": [
+                            "slat_angle_mode_none",
+                            "slat_angle_mode_direct",
+                            "slat_angle_mode_compressed"
+                        ]
+                    }
+                },
+                "reverse": {
+                    "type": "boolean",
+                    "title": "reverse_title",
+                    "description": "reverse_description",
+                    "default": false,
+                    "_format": "checkbox",
+                    "propertyOrder": 8
+                }
+            },
+            "required": ["device_id", "device_name", "curtain_type", "learning_type", "rs485_address", "port"],
+            "options": {
+                "disable_collapse": true,
+                "disable_edit_json": true,
+                "disable_properties": true
+            }
+        }
+    },
+    "properties": {
+        "devices": {
+            "type": "array",
+            "title": "Actuators",
+            "items": {
+                "$ref": "#/definitions/device"
+            },
+            "_format": "tabs",
+            "propertyOrder": 1,
+            "options": {
+                "array_controls_top": true,
+                "disable_array_delete_last_row": true,
+                "disable_array_reorder": true,
+                "enable_array_copy": true,
+                "disable_collapse": true
+            }
+        },
+        "connection_check_interval_ms": {
+            "type": "integer",
+            "title": "connection_check_interval_title",
+            "default": 5000,
+            "minimum": 100,
+            "propertyOrder": 2
+        },
+        "debug": {
+            "type": "boolean",
+            "title": "debug_title",
+            "default": false,
+            "_format": "checkbox",
+            "propertyOrder": 3
+        }
+    },
+    "required": ["devices"],
+    "options": {
+        "disable_collapse": true
+    },
+    "translations": {
+        "en": {
+            "dauerhaft_title": "Dauerhaft PRO Driver",
+            "device_id_title": "MQTT Device ID",
+            "device_id_pattern_message": "Invalid Device ID",
+            "device_name_title": "Device Name",
+            "device_name_description": "Displayed device name in the Wiren Board panel",
+            "curtain_type_title": "Curtain Type",
+            "curtain_type_roller": "Roller Curtain",
+            "curtain_type_sliding": "Sliding Curtain (Rail)",
+            "learning_type_title": "Learning Type",
+            "learning_type_button": "Button on the Actuator",
+            "learning_type_widget": "Widget Command",
+            "rs485_address_title": "RS-485 Bus Address",
+            "port_title": "RS-485 Port",
+            "port_description": "The selected port must be set up according to the curtain actuator manufacturer's instructions",
+            "slat_angle_mode_title": "Slat Angle Mode",
+            "slat_angle_mode_description": "Enables the slat angle controls; the scale must match the actuator's mode",
+            "slat_angle_mode_none": "No slats",
+            "slat_angle_mode_direct": "Direct (0–180° as is)",
+            "slat_angle_mode_compressed": "Compressed (0–180° mapped to 36–144)",
+            "reverse_title": "Reverse",
+            "reverse_description": "For an actuator mounted the other way round: swaps Open/Close and mirrors the shown position",
+            "connection_check_interval_title": "Connection Check Interval, ms",
+            "debug_title": "Enable Debug Logging"
+        },
+        "ru": {
+            "dauerhaft_title": "Драйвер Dauerhaft PRO",
+            "Actuators": "Приводы",
+            "Actuator": "Привод",
+            "device_id_title": "Идентификатор устройства в MQTT",
+            "device_id_pattern_message": "Недопустимый идентификатор",
+            "device_name_title": "Название",
+            "device_name_description": "Отображаемое название устройства в панели Wiren Board",
+            "curtain_type_title": "Тип шторы",
+            "curtain_type_roller": "Рулонная штора",
+            "curtain_type_sliding": "Раздвижная штора (карниз)",
+            "learning_type_title": "Тип обучения",
+            "learning_type_button": "Кнопкой на приводе",
+            "learning_type_widget": "Командой через виджет",
+            "rs485_address_title": "Адрес на шине RS-485",
+            "port_title": "Порт RS-485",
+            "port_description": "Выбранный порт должен быть настроен согласно инструкции производителя привода штор",
+            "slat_angle_mode_title": "Режим угла ламелей",
+            "slat_angle_mode_description": "Включает контролы угла ламелей; шкала должна соответствовать режиму привода",
+            "slat_angle_mode_none": "Ламелей нет",
+            "slat_angle_mode_direct": "Прямая (0–180° как есть)",
+            "slat_angle_mode_compressed": "Сжатая (0–180° в 36–144)",
+            "reverse_title": "Реверс",
+            "reverse_description": "Для привода, смонтированного в обратную сторону: меняет местами «Открыть»/«Закрыть» и зеркалит показ позиции",
+            "connection_check_interval_title": "Интервал проверки связи, мс",
+            "debug_title": "Включить отладочные сообщения"
+        }
+    }
+}

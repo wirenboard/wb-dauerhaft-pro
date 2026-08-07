@@ -1,0 +1,10 @@
+#!/usr/bin/make -f
+
+# Non-Python files are installed only via debian/install;
+# dh_install --fail-missing fails the build if a built file is left out.
+override_dh_auto_install:
+	dh_auto_install
+	dh_install --fail-missing
+
+%:
+	dh $@ --with python3 --buildsystem=pybuild

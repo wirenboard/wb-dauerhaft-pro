@@ -1,0 +1,29 @@
+Source: wb-dauerhaft-pro
+Section: misc
+Priority: optional
+Maintainer: Wiren Board Team <info@wirenboard.com>
+Build-Depends: debhelper-compat (= 11),
+               dh-python,
+               python3-all,
+               python3-mqttrpc,
+               python3-pytest,
+               python3-setuptools,
+               python3-wb-common (>= 2.1.0~~)
+Standards-Version: 4.5.1
+X-Python3-Version: >= 3.5
+Homepage: https://github.com/wirenboard/wb-dauerhaft-pro
+Vcs-Git: https://github.com/wirenboard/wb-dauerhaft-pro
+Rules-Requires-Root: no
+
+Package: wb-dauerhaft-pro
+Section: python
+Architecture: all
+Depends: ${misc:Depends},
+         ${python3:Depends},
+         python3-jsonschema,
+         python3-mqttrpc,
+         python3-systemd,
+         python3-wb-common (>= 2.1.0~~)
+Description: Wiren Board MQTT driver for Dauerhaft PRO RS-485 actuators
+ Polls Dauerhaft PRO actuators over RS-485 through wb-mqtt-serial and
+ publishes them as MQTT virtual devices per the WB conventions.
