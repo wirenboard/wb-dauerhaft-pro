@@ -114,6 +114,47 @@ def _setup_logging(debug: bool) -> None:
     root.setLevel(logging.DEBUG if debug else logging.INFO)
 
 
+def _config_error_device(client) -> WbDevice:
+    """
+    The driver-status pseudo-device that carries a config error message.
+
+    Built identically on the publish and the clear paths, so the retained
+    topics always match: a failed start publishes the error text, the next
+    successful start removes the whole pseudo-device.
+    """
+    dev = WbDevice(client, DRIVER_NAME, "Dauerhaft PRO")
+    dev.add_control(
+        "config_error",
+        "text",
+        1,
+        readonly=True,
+        title={"ru": "Ошибка конфигурации", "en": "Config Error"},
+        initial=None,
+    )
+    return dev
+
+
+def _announce_config_error(broker_url: str, message: str) -> None:
+    """
+    Best-effort: leave the config error visible in the panel before exiting.
+
+    The daemon refuses to start on a bad config (fail-fast, no restart loop),
+    but a journal-only reason is easy to miss — the editor accepts configs the
+    daemon rejects (e.g. duplicate device ids), and the devices then just
+    disappear from the panel. So the reason is also published retained; the
+    next successful start clears it. Broker trouble here only degrades the
+    announcement back to the journal message.
+    """
+    try:
+        client = MQTTClient(DRIVER_NAME, broker_url=broker_url)
+        client.start()
+        _config_error_device(client).set_value("config_error", message[:200])
+        time.sleep(0.3)  # let the network thread flush the retained publishes
+        client.stop()
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning("cannot publish the config error to MQTT: %s", exc)
+
+
 def main() -> int:
     """
     Entry point: parse arguments, load the config and run the poll loop.
@@ -134,6 +175,7 @@ def main() -> int:
         conf = cfgmod.load_config(args.config)
     except cfgmod.ConfigError as err:
         logger.error("config error: %s", err)
+        _announce_config_error(args.broker_url, str(err))
         return EXIT_CONFIG_ERROR
     if conf.debug and not args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
@@ -156,6 +198,12 @@ def main() -> int:
         # RestartPreventExitStatus that would leave the daemon permanently down
         logger.error("cannot connect to broker %s: %s", args.broker_url, exc)
         return EXIT_FAILURE
+    # A previous start may have left a config-error report in the panel (see
+    # _announce_config_error); this start got past config loading, so clear it.
+    try:
+        _config_error_device(client).remove()
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning("cannot clear a stale config error: %s", exc)
     transport = SerialTransport(rpc)
 
     queue = CommandQueue()  # MQTT callbacks enqueue; the poll loop drains on the bus thread
