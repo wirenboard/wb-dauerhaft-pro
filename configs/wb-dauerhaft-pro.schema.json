@@ -43,7 +43,7 @@
                     "type": "string",
                     "title": "learning_type_title",
                     "enum": ["physical_button", "widget_command"],
-                    "default": "physical_button",
+                    "default": "widget_command",
                     "propertyOrder": 4,
                     "options": {
                         "enum_titles": ["learning_type_button", "learning_type_widget"]
@@ -68,7 +68,7 @@
                         "/dev/ttyMOD3",
                         "/dev/ttyMOD4"
                     ],
-                    "default": "/dev/ttyRS485-2",
+                    "default": "/dev/ttyRS485-1",
                     "propertyOrder": 6
                 },
                 "slat_angle_mode": {
@@ -95,7 +95,7 @@
                     "propertyOrder": 8
                 }
             },
-            "required": ["device_id", "device_name", "curtain_type", "learning_type", "rs485_address", "port"],
+            "required": ["device_id", "device_name", "curtain_type", "learning_type", "rs485_address", "port", "slat_angle_mode"],
             "options": {
                 "disable_collapse": true,
                 "disable_edit_json": true,
