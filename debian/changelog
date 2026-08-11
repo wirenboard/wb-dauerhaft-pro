@@ -1,3 +1,10 @@
+wb-dauerhaft-pro (1.0.3) stable; urgency=medium
+
+  * Mirror the device availability error onto every control, so an
+    unreachable actuator is visible in the panel's device list
+
+ -- Ilya Tikhonyuk <ilya.tikhonyuk@wirenboard.com>  Tue, 11 Aug 2026 15:40:00 +0300
+
 wb-dauerhaft-pro (1.0.2) stable; urgency=medium
 
   * Show config errors in the panel: a broken config publishes a retained
