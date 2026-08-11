@@ -138,9 +138,15 @@ class WbDevice:
 
         Per WB conventions a non-empty ``/meta/error`` marks the device
         unavailable; ``r``/``w``/``p`` mean read / write / period-miss. Pass an
-        empty string to clear it.
+        empty string to clear it. The state is mirrored onto every control
+        (``<control>/meta/error``): the panel's device list reflects only
+        control-level errors, so without the mirror an unavailable device
+        looks indistinguishable from a live one there.
         """
-        self._pub(self.error_topic(), error or "")
+        value = error or ""
+        self._pub(self.error_topic(), value)
+        for name in self._controls:
+            self._pub(f"{self._base}/controls/{name}/meta/error", value)
 
     def republish(self) -> None:
         """
@@ -166,6 +172,7 @@ class WbDevice:
         for name in self._controls:
             self._pub(f"{self._base}/controls/{name}", None)
             self._pub(f"{self._base}/controls/{name}/meta", None)
+            self._pub(f"{self._base}/controls/{name}/meta/error", None)
         self._pub(self.error_topic(), None)
         self._pub(f"{self._base}/meta", None)
         self._pub(f"{self._base}/meta/name", None)
