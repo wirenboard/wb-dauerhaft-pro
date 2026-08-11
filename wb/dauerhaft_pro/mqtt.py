@@ -87,11 +87,26 @@ class WbDevice:
     def on_command(self, name: str, callback) -> None:
         """
         Subscribe to <control>/on and route matching messages to *callback*.
+
+        Every command passes through here, so the cross-cutting rules live in
+        this one place: retained messages are dropped (a command retained on
+        the broker would replay on every daemon restart — a control the user
+        never actually pressed), and accepted commands are logged at INFO so
+        user actions leave a journal trace.
         """
         topic = f"{self._base}/controls/{name}/on"
+
+        def handler(client, userdata, msg):
+            if msg.retain:
+                logger.warning("ignoring retained command on %s", msg.topic)
+                return
+            payload = msg.payload.decode("utf-8", "replace")
+            logger.info("%s: command %s <- %s", self.id, name, payload[:64])
+            callback(client, userdata, msg)
+
         self._on_topics.append(topic)
         self._client.subscribe(topic)
-        self._client.message_callback_add(topic, callback)
+        self._client.message_callback_add(topic, handler)
 
     def resubscribe(self) -> None:
         """

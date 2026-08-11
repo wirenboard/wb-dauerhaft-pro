@@ -17,7 +17,7 @@ setting (ActuatorConfig.reverse), applied at startup — it has no widget contro
 import logging
 
 from . import protocol
-from .commands import PRIO_MOVE, PRIO_SETTING, PRIO_STOP, _ignore_retained
+from .commands import PRIO_MOVE, PRIO_SETTING, PRIO_STOP
 
 logger = logging.getLogger(__name__)
 
@@ -186,7 +186,7 @@ class DeviceControls:
         for name, control_type, order, ru_title, en_title, handler, extra in rows:
             self._dev.add_control(name, control_type, order, title={"ru": ru_title, "en": en_title}, **extra)
             if handler is not None:
-                self._dev.on_command(name, _ignore_retained(handler))
+                self._dev.on_command(name, handler)
 
     def publish_telemetry(self):
         """

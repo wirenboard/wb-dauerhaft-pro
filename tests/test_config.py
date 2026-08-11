@@ -5,10 +5,14 @@ the schema when validation is skipped.
 """
 
 import json
+import logging
+import os
 
 import pytest
 
 from wb.dauerhaft_pro import config
+
+REAL_SCHEMA = os.path.join(os.path.dirname(__file__), "..", "configs", "wb-dauerhaft-pro.schema.json")
 
 DEVICE = {
     "device_id": "dauerhaft_5f",
@@ -40,6 +44,20 @@ def test_config_parses_with_unit_conversion(tmp_path):
     assert conf.check_interval_s == 2.5  # ms in the config, seconds inside the daemon
     dev = conf.devices[0]
     assert (dev.device_id, dev.address, dev.port.path) == ("dauerhaft_5f", 95, "/dev/ttyRS485-2")
+
+
+def test_legacy_config_without_slat_mode_passes_real_schema(tmp_path, caplog):
+    """
+    A config from before slat_angle_mode became required in the editor schema
+    (the device entry has no such field) must still validate and load: the
+    loader defaults the field before schema validation, saying so in the log.
+    """
+    pytest.importorskip("jsonschema")
+    path = _write(tmp_path, {"devices": [DEVICE]})
+    with caplog.at_level(logging.INFO, logger="wb.dauerhaft_pro.config"):
+        conf = config.load_config(path, schema_path=REAL_SCHEMA)
+    assert conf.devices[0].slat_angle_mode == "none"
+    assert "slat_angle_mode is not set, defaulting to none" in caplog.text
 
 
 def test_duplicate_device_id_rejected(tmp_path):

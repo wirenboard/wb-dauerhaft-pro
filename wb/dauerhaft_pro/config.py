@@ -147,6 +147,17 @@ def load_config(path: str = CONFIG_PATH, schema_path: str = SCHEMA_PATH) -> Conf
     except json.JSONDecodeError as err:
         raise ConfigError(f"{path} is not valid JSON: {err}") from err
 
+    # Configs written before slat_angle_mode became required in the editor
+    # schema may lack the field (the daemon has always defaulted it to "none").
+    # It is required there only so the editor materializes it with its default
+    # instead of offering a blank option — not to outlaw older configs, so
+    # default it before validating against that schema.
+    if isinstance(raw, dict) and isinstance(raw.get("devices"), list):
+        for index, raw_device in enumerate(raw["devices"]):
+            if isinstance(raw_device, dict) and "slat_angle_mode" not in raw_device:
+                logger.info("device #%d: slat_angle_mode is not set, defaulting to none", index)
+                raw_device["slat_angle_mode"] = "none"
+
     _validate_against_schema(raw, path, schema_path)
 
     if not isinstance(raw, dict):
