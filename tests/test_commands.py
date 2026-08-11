@@ -1,17 +1,8 @@
 """
-Command layer: the TX queue (priority, replace-by-key, ready arming) and the
-retained-command guard.
+Command layer: the TX queue (priority, replace-by-key, ready arming).
 """
 
-from types import SimpleNamespace
-
-from wb.dauerhaft_pro.commands import (
-    PRIO_MOVE,
-    PRIO_SETTING,
-    PRIO_STOP,
-    CommandQueue,
-    _ignore_retained,
-)
+from wb.dauerhaft_pro.commands import PRIO_MOVE, PRIO_SETTING, PRIO_STOP, CommandQueue
 
 
 def test_stop_cancels_queued_movement_and_runs_first():
@@ -36,19 +27,6 @@ def test_new_movement_replaces_the_queued_one():
     queue.put(PRIO_MOVE, "move-b", lambda: ran.append("other"))
     queue.drain()
     assert ran == ["down", "other"]
-
-
-def test_retained_command_is_ignored():
-    """
-    A retained command is dropped, so a stale command never replays on a daemon
-    restart and moves the actuator; a fresh command is delivered.
-    """
-    delivered = []
-    wrapped = _ignore_retained(lambda _c, _u, msg: delivered.append(msg))
-    wrapped(None, None, SimpleNamespace(retain=True, topic="t"))
-    assert not delivered  # retained: dropped
-    wrapped(None, None, SimpleNamespace(retain=False, topic="t"))
-    assert len(delivered) == 1  # fresh: delivered
 
 
 def test_ready_reflects_pending_work():

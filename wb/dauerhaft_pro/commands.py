@@ -1,5 +1,5 @@
 """
-Command layer: the prioritized TX queue and the retained-command guard.
+Command layer: the prioritized TX queue.
 
 MQTT command callbacks only enqueue; the daemon's main loop drains the queue
 between polls, so all bus I/O stays on the single thread that owns the
@@ -23,23 +23,6 @@ PRIO_SETTING = 2
 # One queued command: its priority, an insertion sequence (FIFO tie-break within
 # a priority), a coalescing key (or None), and the zero-arg action to run.
 _Entry = namedtuple("_Entry", "priority sequence key action")
-
-
-def _ignore_retained(handler):
-    """
-    Wrap a command handler to drop retained messages.
-
-    A command retained on the broker would otherwise replay on every daemon
-    restart — a control the user never actually pressed.
-    """
-
-    def wrapped(client, userdata, msg):
-        if msg.retain:
-            logger.warning("ignoring retained command on %s", msg.topic)
-            return
-        handler(client, userdata, msg)
-
-    return wrapped
 
 
 class CommandQueue:

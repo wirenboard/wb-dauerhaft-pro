@@ -1,7 +1,12 @@
 """
 MQTT device-helper unit tests: unchanged retained values must not be
-republished — the poll loop calls set_value/set_error on every cycle.
+republished (the poll loop calls set_value/set_error on every cycle), and the
+shared command dispatcher must drop retained replays while logging accepted
+commands.
 """
+
+import logging
+from types import SimpleNamespace
 
 from wb.dauerhaft_pro.mqtt import WbDevice
 
@@ -9,6 +14,7 @@ from wb.dauerhaft_pro.mqtt import WbDevice
 class RecordingClient:
     def __init__(self):
         self.published = []
+        self.callbacks = {}
 
     def publish(self, topic, value, retain=False):
         self.published.append((topic, value, retain))
@@ -17,7 +23,7 @@ class RecordingClient:
         pass
 
     def message_callback_add(self, topic, callback):
-        pass
+        self.callbacks[topic] = callback
 
 
 def test_unchanged_retained_values_are_not_republished():
@@ -37,6 +43,27 @@ def test_unchanged_retained_values_are_not_republished():
 
     dev.set_value("address", "0x5E")  # a real change is published, retained
     assert client.published[-1] == ("/devices/dauerhaft_test/controls/address", "0x5E", True)
+
+
+def test_command_dispatcher_drops_retained_and_logs_accepted(caplog):
+    """
+    The shared <control>/on dispatcher drops a retained replay (a stale command
+    must not move the actuator on a daemon restart) and delivers a fresh
+    command, logging it at INFO so user actions leave a journal trace.
+    """
+    client = RecordingClient()
+    dev = WbDevice(client, "dauerhaft_test", "Тест")
+    delivered = []
+    dev.on_command("up", lambda _c, _u, msg: delivered.append(msg))
+    handler = client.callbacks["/devices/dauerhaft_test/controls/up/on"]
+
+    handler(None, None, SimpleNamespace(retain=True, topic="t", payload=b"1"))
+    assert not delivered  # retained: dropped
+
+    with caplog.at_level(logging.INFO, logger="wb.dauerhaft_pro.mqtt"):
+        handler(None, None, SimpleNamespace(retain=False, topic="t", payload=b"1"))
+    assert [msg.payload for msg in delivered] == [b"1"]  # fresh: delivered
+    assert "dauerhaft_test: command up <- 1" in caplog.text
 
 
 def test_republish_restores_every_topic():
