@@ -135,16 +135,12 @@ def _config_error_device(client) -> WbDevice:
 
 def _announce_config_error(broker_url: str, message: str) -> None:
     """
-    Best-effort: leave the config error visible in the panel before exiting.
+    Best-effort: leave the config error visible in the web UI before exiting.
 
-    The daemon refuses to start on a bad config (fail-fast, no restart loop),
-    but a journal-only reason is easy to miss — the editor accepts configs the
-    daemon rejects (e.g. duplicate device ids), and the devices then just
-    disappear from the panel. So the reason is also published retained; the
-    next successful start clears it. No state is read back from the broker
-    between runs: this path only publishes the report, and the clearing start
-    blindly publishes removals for the same fixed topics. Broker trouble here
-    only degrades the announcement back to the journal message.
+    The reason is published retained into the web UI's device list
+    (journal-only is easy to miss — the actuators just disappear there); the
+    next good start blindly clears the same fixed topics. Writes only,
+    nothing is read back.
     """
     try:
         client = MQTTClient(DRIVER_NAME, broker_url=broker_url)
