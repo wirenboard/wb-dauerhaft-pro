@@ -11,13 +11,32 @@ from types import SimpleNamespace
 from wb.dauerhaft_pro.mqtt import WbDevice
 
 
+class FakeMessageInfo:
+    """Just enough of paho's MQTTMessageInfo for the confirmation path."""
+
+    def __init__(self):
+        self.waited = False
+
+    def wait_for_publish(self, _timeout=None):
+        self.waited = True
+
+    def is_published(self):
+        return True
+
+
 class RecordingClient:
+    info_factory = FakeMessageInfo
+
     def __init__(self):
         self.published = []
+        self.infos = []
         self.callbacks = {}
 
     def publish(self, topic, value, retain=False):
         self.published.append((topic, value, retain))
+        info = self.info_factory()
+        self.infos.append(info)
+        return info
 
     def subscribe(self, topic):
         pass
@@ -98,6 +117,41 @@ def test_remove_clears_the_mirrored_control_errors():
     dev.set_error("r")
     dev.remove()
     assert ("/devices/dauerhaft_test/controls/address/meta/error", None, True) in client.published
+
+
+def test_remove_waits_for_the_retained_clears():
+    """
+    remove() must confirm delivery of every pending publish: the daemon calls
+    client.stop() right after it, which kills the network thread, and an
+    unconfirmed clear dies in the paho queue — a ghost device in the panel.
+    """
+    client = RecordingClient()
+    dev = WbDevice(client, "dauerhaft_test", "Тест")
+    dev.add_control("address", "text", 5, readonly=True, initial="0x5F")
+    dev.remove()
+    assert client.infos and all(info.waited for info in client.infos)
+
+
+def test_wait_published_survives_unconfirmed_publishes(caplog):
+    """
+    A publish that cannot confirm (paho raises RuntimeError from
+    wait_for_publish on a dead connection) must not raise out of
+    wait_published — its callers are best-effort — but must leave a warning.
+    """
+
+    class RefusingInfo(FakeMessageInfo):
+        def wait_for_publish(self, _timeout=None):
+            raise RuntimeError("not connected")
+
+        def is_published(self):
+            return False
+
+    client = RecordingClient()
+    client.info_factory = RefusingInfo
+    dev = WbDevice(client, "dauerhaft_test", "Тест")
+    with caplog.at_level(logging.WARNING, logger="wb.dauerhaft_pro.mqtt"):
+        dev.wait_published(timeout=0.1)
+    assert "unconfirmed" in caplog.text
 
 
 def test_republish_restores_every_topic():

@@ -1,3 +1,12 @@
+wb-dauerhaft-pro (1.0.6) stable; urgency=medium
+
+  * Confirm delivery of retained publishes (wait_for_publish) on the
+    shutdown cleanup and on the config-error announcement, instead of
+    sleeping and hoping the network thread got there first
+  * Collapse the error-topic helpers into the single module-level builder
+
+ -- Ilya Tikhonyuk <ilya.tikhonyuk@wirenboard.com>  Wed, 12 Aug 2026 16:20:00 +0300
+
 wb-dauerhaft-pro (1.0.4) stable; urgency=medium
 
   * Clean up the config file and its .default copy on purge
