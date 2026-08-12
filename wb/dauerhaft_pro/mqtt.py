@@ -98,7 +98,7 @@ class WbDevice:
 
         def handler(client, userdata, msg):
             if msg.retain:
-                logger.warning("ignoring retained command on %s", msg.topic)
+                logger.warning("%s: ignoring retained command %s", self.id, name)
                 return
             payload = msg.payload.decode("utf-8", "replace")
             logger.info("%s: command %s <- %s", self.id, name, payload[:64])

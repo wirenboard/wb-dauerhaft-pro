@@ -51,7 +51,8 @@ def test_command_dispatcher_drops_retained_and_logs_accepted(caplog):
     """
     The shared <control>/on dispatcher drops a retained replay (a stale command
     must not move the actuator on a daemon restart) and delivers a fresh
-    command, logging it at INFO so user actions leave a journal trace.
+    command, logging it at INFO so user actions leave a journal trace. Both
+    log lines carry the same device-id prefix.
     """
     client = RecordingClient()
     dev = WbDevice(client, "dauerhaft_test", "Тест")
@@ -59,8 +60,10 @@ def test_command_dispatcher_drops_retained_and_logs_accepted(caplog):
     dev.on_command("up", lambda _c, _u, msg: delivered.append(msg))
     handler = client.callbacks["/devices/dauerhaft_test/controls/up/on"]
 
-    handler(None, None, SimpleNamespace(retain=True, topic="t", payload=b"1"))
+    with caplog.at_level(logging.WARNING, logger="wb.dauerhaft_pro.mqtt"):
+        handler(None, None, SimpleNamespace(retain=True, topic="t", payload=b"1"))
     assert not delivered  # retained: dropped
+    assert "dauerhaft_test: ignoring retained command up" in caplog.text
 
     with caplog.at_level(logging.INFO, logger="wb.dauerhaft_pro.mqtt"):
         handler(None, None, SimpleNamespace(retain=False, topic="t", payload=b"1"))
