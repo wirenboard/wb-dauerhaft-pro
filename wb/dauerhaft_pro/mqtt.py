@@ -221,5 +221,9 @@ class WbDevice:
             return None
         self._last[topic] = value
         info = self._client.publish(topic, value, retain=True)
+        # prune confirmed receipts eagerly: the device lives for months with
+        # wait_published() only called on shutdown, so hoarding every state
+        # change's receipt until then would be an unbounded leak
+        self._pending = [pending for pending in self._pending if not pending.is_published()]
         self._pending.append(info)
         return info

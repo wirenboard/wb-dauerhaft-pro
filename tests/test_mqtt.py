@@ -121,15 +121,40 @@ def test_remove_clears_the_mirrored_control_errors():
 
 def test_remove_waits_for_the_retained_clears():
     """
-    remove() must confirm delivery of every pending publish: the daemon calls
-    client.stop() right after it, which kills the network thread, and an
-    unconfirmed clear dies in the paho queue — a ghost device in the panel.
+    remove() must confirm delivery of every publish still in flight: the
+    daemon calls client.stop() right after it, which kills the network
+    thread, and an unconfirmed clear dies in the paho queue — a ghost device
+    in the panel.
     """
+
+    class InFlightInfo(FakeMessageInfo):
+        """Confirms only when awaited — a publish the network has not sent yet."""
+
+        def is_published(self):
+            return self.waited
+
     client = RecordingClient()
+    client.info_factory = InFlightInfo
     dev = WbDevice(client, "dauerhaft_test", "Тест")
     dev.add_control("address", "text", 5, readonly=True, initial="0x5F")
     dev.remove()
     assert client.infos and all(info.waited for info in client.infos)
+
+
+def test_confirmed_receipts_do_not_pile_up():
+    """
+    Confirmed publish receipts are pruned as new publishes happen: the device
+    lives for months with wait_published() only called on shutdown, so
+    hoarding every state change's receipt until then would be an unbounded
+    leak.
+    """
+    # pylint: disable=protected-access
+    client = RecordingClient()
+    dev = WbDevice(client, "dauerhaft_test", "Тест")
+    dev.add_control("address", "text", 5, readonly=True, initial="0x5F")
+    for value in range(50):
+        dev.set_value("address", str(value))
+    assert len(dev._pending) <= 2  # the fake confirms instantly: no hoard
 
 
 def test_wait_published_survives_unconfirmed_publishes(caplog):

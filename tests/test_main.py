@@ -10,7 +10,11 @@ from wb.dauerhaft_pro import main as main_mod
 
 
 class FakeMessageInfo:
-    """Just enough of paho's MQTTMessageInfo for the confirmation path."""
+    """
+    Just enough of paho's MQTTMessageInfo for the confirmation path. Confirms
+    only when awaited — a publish the network thread has not sent yet — so the
+    test proves the announcement actually waits for every receipt.
+    """
 
     def __init__(self):
         self.waited = False
@@ -19,7 +23,7 @@ class FakeMessageInfo:
         self.waited = True
 
     def is_published(self):
-        return True
+        return self.waited
 
 
 class FakeMQTTClient:
