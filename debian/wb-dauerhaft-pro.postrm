@@ -1,15 +1,12 @@
-#!/bin/sh
+#!/bin/bash
+
 set -e
 
 CONFFILE=/etc/wb-dauerhaft-pro.conf
 
-# On a controller the config in /etc is turned into a symlink pointing at the
-# data partition (so user edits survive firmware updates). dpkg removes the
-# symlink's target on purge but keeps the symlink itself, and a dangling link
-# then makes the next install silently skip unpacking the conffile — so remove
-# the config and its .default copy explicitly.
 if [ "$1" = "purge" ]; then
-    rm -f "$CONFFILE" "$CONFFILE.default"
+    rm -f $CONFFILE
+    rm -f $CONFFILE.default
 fi
 
 #DEBHELPER#
