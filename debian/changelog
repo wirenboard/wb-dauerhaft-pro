@@ -5,6 +5,19 @@ wb-dauerhaft-pro (1.0.7) stable; urgency=medium
 
  -- Ilya Tikhonyuk <ilya.tikhonyuk@wirenboard.com>  Thu, 13 Aug 2026 13:00:00 +0300
 
+wb-dauerhaft-pro (1.0.6) stable; urgency=medium
+
+  * Fix confirm retained publishes instead of sleeping
+  * Collapse the error-topic helpers into the single module-level builder
+
+ -- Ilya Tikhonyuk <ilya.tikhonyuk@wirenboard.com>  Wed, 12 Aug 2026 16:20:00 +0300
+
+wb-dauerhaft-pro (1.0.5) stable; urgency=medium
+
+  * Fixed the logging level and log entries.
+
+ -- Ilya Tikhonyuk <ilya.tikhonyuk@wirenboard.com>  Wed, 12 Aug 2026 15:10:00 +0300
+
 wb-dauerhaft-pro (1.0.4) stable; urgency=medium
 
   * Clean up the config file and its .default copy on purge
