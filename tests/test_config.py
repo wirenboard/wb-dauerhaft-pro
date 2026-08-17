@@ -50,14 +50,15 @@ def test_legacy_config_without_slat_mode_passes_real_schema(tmp_path, caplog):
     """
     A config from before slat_angle_mode became required in the editor schema
     (the device entry has no such field) must still validate and load: the
-    loader defaults the field before schema validation, saying so in the log.
+    loader defaults the field before schema validation, warning about it in
+    the log so the user knows to re-save the config.
     """
     pytest.importorskip("jsonschema")
     path = _write(tmp_path, {"devices": [DEVICE]})
-    with caplog.at_level(logging.INFO, logger="wb.dauerhaft_pro.config"):
+    with caplog.at_level(logging.WARNING, logger="wb.dauerhaft_pro.config"):
         conf = config.load_config(path, schema_path=REAL_SCHEMA)
     assert conf.devices[0].slat_angle_mode == "none"
-    assert "slat_angle_mode is not set, defaulting to none" in caplog.text
+    assert "device #0 (dauerhaft_5f): slat_angle_mode is not set, defaulting to none" in caplog.text
 
 
 def test_duplicate_device_id_rejected(tmp_path):

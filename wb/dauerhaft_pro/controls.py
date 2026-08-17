@@ -293,8 +293,7 @@ class DeviceControls:
             write = self._actuator.set_address
         self._queue.put(PRIO_SETTING, self._addr_key, lambda: write(target))
 
-    @staticmethod
-    def _parse_int_payload(msg):
+    def _parse_int_payload(self, msg):
         """
         Decode an integer command payload; None (and a log line) when malformed.
 
@@ -306,5 +305,7 @@ class DeviceControls:
                 return int(msg.payload.decode())
             except (UnicodeDecodeError, ValueError):
                 pass
-        logger.warning("ignoring malformed command payload %r on %s", msg.payload[:32], msg.topic)
+        logger.warning(
+            "%s: ignoring malformed command payload %r on %s", self._dev.id, msg.payload[:32], msg.topic
+        )
         return None
