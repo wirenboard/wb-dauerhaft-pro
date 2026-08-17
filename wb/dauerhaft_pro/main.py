@@ -23,7 +23,6 @@ import os
 import signal
 import sys
 import threading
-import time
 
 from mqttrpc import client as rpcclient
 from wb_common.mqtt_client import DEFAULT_BROKER_URL, MQTTClient
@@ -136,20 +135,19 @@ def _config_error_device(client) -> WbDevice:
 
 def _announce_config_error(broker_url: str, message: str) -> None:
     """
-    Best-effort: leave the config error visible in the panel before exiting.
+    Best-effort: leave the config error visible in the web UI before exiting.
 
-    The daemon refuses to start on a bad config (fail-fast, no restart loop),
-    but a journal-only reason is easy to miss — the editor accepts configs the
-    daemon rejects (e.g. duplicate device ids), and the devices then just
-    disappear from the panel. So the reason is also published retained; the
-    next successful start clears it. Broker trouble here only degrades the
-    announcement back to the journal message.
+    The reason is published retained into the web UI's device list
+    (journal-only is easy to miss — the actuators just disappear there); the
+    next good start blindly clears the same fixed topics. Writes only,
+    nothing is read back.
     """
     try:
         client = MQTTClient(DRIVER_NAME, broker_url=broker_url)
         client.start()
-        _config_error_device(client).set_value("config_error", message[:200])
-        time.sleep(0.3)  # let the network thread flush the retained publishes
+        dev = _config_error_device(client)
+        dev.set_value("config_error", message[:200])
+        dev.wait_published()  # confirm delivery before stop() kills the network thread
         client.stop()
     except Exception as exc:  # pylint: disable=broad-except
         logger.warning("cannot publish the config error to MQTT: %s", exc)
@@ -297,11 +295,7 @@ def main() -> int:
     finally:
         logger.info("shutting down")
         for dev, _actuator, _controls in entries:
-            dev.remove()
-        # dev.remove() publishes retained clears asynchronously; let the network
-        # loop flush them before we stop it, otherwise a device would linger in
-        # the UI with its last retained state.
-        time.sleep(0.3)
+            dev.remove()  # publishes the retained clears and waits them out
         client.stop()
     return EXIT_SIGNAL
 

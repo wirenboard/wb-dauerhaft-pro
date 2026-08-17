@@ -18,6 +18,7 @@ Meta format (per WB conventions)::
 
 import json
 import logging
+import time
 from typing import Optional, Union
 
 logger = logging.getLogger(__name__)
@@ -29,9 +30,9 @@ def build_error_topic(device_id: str) -> str:
     """
     Build the device-level availability/error topic for a device id.
 
-    A module-level helper so the daemon can set the Last Will topic before any
-    WbDevice exists (the will must be registered before the client connects),
-    while :meth:`WbDevice.error_topic` stays the single source of the format.
+    The single source of the topic format; a module-level helper (not a
+    WbDevice method) so the daemon can set the Last Will topic before any
+    WbDevice exists — the will must be registered before the client connects.
     """
     return f"/devices/{device_id}/meta/error"
 
@@ -53,6 +54,7 @@ class WbDevice:
         self._controls = []
         self._on_topics = []
         self._last = {}  # topic -> last published value, to skip unchanged retained publishes
+        self._pending = []  # publish confirmations not yet awaited (see wait_published)
         meta = {"driver": driver, "title": {"en": title, "ru": title}}
         self._pub(f"{self._base}/meta", json.dumps(meta, ensure_ascii=False))
         self._pub(f"{self._base}/meta/name", title)  # legacy backward-compat
@@ -121,17 +123,6 @@ class WbDevice:
         """
         self._pub(f"{self._base}/controls/{name}", str(value))
 
-    def error_topic(self) -> str:
-        """
-        The device-level error topic, usable as this connection's Last Will.
-
-        One MQTT connection carries a single Will, so only one device's error
-        can be the LWT target; the daemon uses the first device's. Every
-        device's error is still updated live by the poll loop while the daemon
-        runs — the Will only covers an ungraceful death of the process.
-        """
-        return build_error_topic(self.id)
-
     def set_error(self, error: str) -> None:
         """
         Set/clear the device-level availability error.
@@ -144,7 +135,7 @@ class WbDevice:
         looks indistinguishable from a live one there.
         """
         value = error or ""
-        self._pub(self.error_topic(), value)
+        self._pub(build_error_topic(self.id), value)
         for name in self._controls:
             self._pub(f"{self._base}/controls/{name}/meta/error", value)
 
@@ -165,6 +156,10 @@ class WbDevice:
     def remove(self) -> None:
         """
         Unsubscribe commands and clear all retained topics (called on shutdown).
+
+        Waits for the clears to be confirmed (:meth:`wait_published`): the
+        daemon calls client.stop() right after, and an unconfirmed clear would
+        die in the paho queue, leaving a ghost device in the panel.
         """
         for topic in self._on_topics:
             self._client.unsubscribe(topic)
@@ -173,11 +168,42 @@ class WbDevice:
             self._pub(f"{self._base}/controls/{name}", None)
             self._pub(f"{self._base}/controls/{name}/meta", None)
             self._pub(f"{self._base}/controls/{name}/meta/error", None)
-        self._pub(self.error_topic(), None)
+        self._pub(build_error_topic(self.id), None)
         self._pub(f"{self._base}/meta", None)
         self._pub(f"{self._base}/meta/name", None)
+        self.wait_published()
 
-    def _pub(self, topic: str, value) -> None:
+    def wait_published(self, timeout: float = 2.0) -> None:
+        """
+        Wait until every pending publish has been handed to the network.
+
+        paho's publish() only queues; the network thread sends asynchronously,
+        so callers that stop the client right after publishing must wait for
+        the confirmations or risk losing the tail of the queue. QoS-0
+        "published" means written to the socket — no broker ack exists — which
+        is exactly the guarantee needed against stop() racing the network
+        thread. One deadline bounds the whole batch (a dead connection must
+        not stall shutdown per-topic); leftovers are logged, not raised — the
+        callers (shutdown cleanup, config-error announcement) are best-effort.
+        """
+        deadline = time.monotonic() + timeout
+        unconfirmed = 0
+        for info in self._pending:
+            try:
+                remaining = deadline - time.monotonic()
+                if remaining > 0:
+                    info.wait_for_publish(remaining)
+                if not info.is_published():
+                    unconfirmed += 1
+            except (RuntimeError, ValueError):  # paho: not queued / rejected outright
+                unconfirmed += 1
+        self._pending.clear()
+        if unconfirmed:
+            logger.warning(
+                "%s: %d retained publish(es) unconfirmed after %.1fs", self.id, unconfirmed, timeout
+            )
+
+    def _pub(self, topic: str, value):
         """
         Publish a retained value, skipping an unchanged repeat.
 
@@ -187,8 +213,17 @@ class WbDevice:
         which replays the whole cache and restores the device (broker restarts
         drop retained state), so recovery never hinges on one publish, and a
         one-shot meta topic dropped at startup is still restored.
+
+        Returns the paho publish confirmation (also queued for
+        :meth:`wait_published`), or None for a deduplicated repeat.
         """
         if topic in self._last and self._last[topic] == value:
-            return
+            return None
         self._last[topic] = value
-        self._client.publish(topic, value, retain=True)
+        info = self._client.publish(topic, value, retain=True)
+        # prune confirmed receipts eagerly: the device lives for months with
+        # wait_published() only called on shutdown, so hoarding every state
+        # change's receipt until then would be an unbounded leak
+        self._pending = [pending for pending in self._pending if not pending.is_published()]
+        self._pending.append(info)
+        return info

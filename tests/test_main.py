@@ -9,6 +9,23 @@ from types import SimpleNamespace
 from wb.dauerhaft_pro import main as main_mod
 
 
+class FakeMessageInfo:
+    """
+    Just enough of paho's MQTTMessageInfo for the confirmation path. Confirms
+    only when awaited — a publish the network thread has not sent yet — so the
+    test proves the announcement actually waits for every receipt.
+    """
+
+    def __init__(self):
+        self.waited = False
+
+    def wait_for_publish(self, _timeout=None):
+        self.waited = True
+
+    def is_published(self):
+        return self.waited
+
+
 class FakeMQTTClient:
     """Just enough of wb_common's MQTTClient for the announcement path."""
 
@@ -18,6 +35,7 @@ class FakeMQTTClient:
         self.client_id = client_id
         self.broker_url = broker_url
         self.published = []
+        self.infos = []
         self.started = False
         self.stopped = False
         FakeMQTTClient.instances.append(self)
@@ -30,6 +48,9 @@ class FakeMQTTClient:
 
     def publish(self, topic, value, retain=False):
         self.published.append((topic, value, retain))
+        info = FakeMessageInfo()
+        self.infos.append(info)
+        return info
 
     def subscribe(self, topic):
         pass
@@ -57,13 +78,13 @@ def test_broken_config_returns_notconfigured_and_announces(tmp_path, monkeypatch
 def test_config_error_is_published_retained(monkeypatch):
     """
     The announcement publishes the error text retained on the driver-status
-    pseudo-device and closes the connection, so the panel keeps showing why
-    the daemon is down.
+    pseudo-device, confirms delivery (paho publishes asynchronously — stopping
+    right away would race the network thread) and closes the connection, so
+    the panel keeps showing why the daemon is down.
     """
     # pylint: disable=protected-access
     FakeMQTTClient.instances.clear()
     monkeypatch.setattr(main_mod, "MQTTClient", FakeMQTTClient)
-    monkeypatch.setattr(main_mod.time, "sleep", lambda _s: None)
     main_mod._announce_config_error("unix:///run/mosquitto.sock", "device ids must be unique")
     client = FakeMQTTClient.instances[-1]
     assert client.started and client.stopped
@@ -72,6 +93,7 @@ def test_config_error_is_published_retained(monkeypatch):
         "device ids must be unique",
         True,
     ) in client.published
+    assert client.infos and all(info.waited for info in client.infos)
 
 
 def test_config_error_announce_survives_a_dead_broker(monkeypatch):
