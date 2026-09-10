@@ -1,3 +1,12 @@
+wb-dauerhaft-pro (1.0.8) stable; urgency=medium
+
+  * Replace the text position indicator with a writable Position slider (0..100 %)
+  * Report missing travel limits as two alarm controls (upper / lower)
+  * Publish the address and the current slat angle as numeric values
+  * Drop the unused curtain type setting from the config editor
+
+ -- Ilya Tikhonyuk <ilya.tikhonyuk@wirenboard.com>  Thu, 10 Sep 2026 19:00:00 +0300
+
 wb-dauerhaft-pro (1.0.7) stable; urgency=medium
 
   * Fix cleanup with `apt purge` command

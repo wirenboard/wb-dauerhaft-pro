@@ -75,6 +75,9 @@ def test_angle_scales_round_trip():
 @pytest.mark.parametrize(
     "frame,expected",
     [
+        (protocol.control_up(0x0B), "04020164"),  # move: fully up
+        (protocol.control_down(0x0B), "04020100"),  # move: fully down
+        (protocol.control_move(0x0B, 50), "04020132"),  # move: go to 50 %
         (protocol.control_angle(0x0B, 0x2C), "0402042c"),  # slat angle, raw 44
         (protocol.control_third_point(0x0B), "04020300"),  # go to the waypoint
         (protocol.set_third_point(0x0B), "020105"),  # store the waypoint
@@ -88,6 +91,36 @@ def test_command_frames_match_the_controls_table(frame, expected):
     (function + length + data, without the address and CRC).
     """
     assert frame[1:-2].hex() == expected
+
+
+def test_move_frame_matches_the_captured_one():
+    """
+    A go-to-percent frame equals one captured on the bench (0x5F to 50 %,
+    acknowledged by the actuator), CRC included; a percent outside 0..100 is
+    refused before it reaches the wire.
+    """
+    assert protocol.control_move(0x5F, 50) == bytes.fromhex("5f0402013290b8")
+    with pytest.raises(ValueError, match="0..100"):
+        protocol.control_move(0x5F, 101)
+
+
+@pytest.mark.parametrize(
+    "position,expected",
+    [
+        (protocol.POSITION_BOTH_LIMITS_UNSET, (True, True)),
+        (protocol.POSITION_UPPER_LIMIT_UNSET, (True, False)),
+        (protocol.POSITION_LOWER_LIMIT_UNSET, (False, True)),
+        (0, (False, False)),
+        (100, (False, False)),
+    ],
+    ids=["both-unset", "upper-unset", "lower-unset", "fully-down", "fully-up"],
+)
+def test_position_markers_decode_into_limit_flags(position, expected):
+    """
+    The limits-unset markers decode into (upper_unset, lower_unset) flags; a
+    numeric position means both limits are set.
+    """
+    assert protocol.unset_limits(position) == expected
 
 
 def test_learning_frame_goes_to_the_learning_address():

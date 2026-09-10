@@ -2,9 +2,9 @@
 Wire protocol codec for Dauerhaft PRO RS-485 actuators (supported subset).
 
 Implements just enough of the "Profkarniz Dauerhaft PRO RS-485 v2.3" protocol
-for the driver: drive the motor (up / down / stop / slat angle / waypoint),
-read position and angle, and set the device address (unicast or via the
-button-learning window). This module is pure (no I/O) so it can be
+for the driver: drive the motor (up / down / stop / to a percent position /
+slat angle / waypoint), read position and angle, and set the device address
+(unicast or via the button-learning window). This module is pure (no I/O) so it can be
 unit-tested against captured frames.
 
 Frame layout (both directions), section 2 of the spec::
@@ -26,7 +26,7 @@ code in the spec and the wire use CRC-16/Modbus. The label is a documentation bu
 import logging
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Callable, Dict, Optional, Sequence, Union
+from typing import Callable, Dict, Optional, Sequence, Tuple, Union
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +42,7 @@ MAX_DEVICE_ADDRESS = 0xFE
 
 POSITION_DOWN = 0x00  # fully down / closed
 POSITION_UP = 0x64  # 100 %, fully up / open
+POSITION_MAX = 100  # positions are percent, 0..100; the wire byte is the percent itself
 
 # Markers a position query returns instead of 0..100 % while limits are missing.
 POSITION_BOTH_LIMITS_UNSET = 0xFC
@@ -86,7 +87,7 @@ class ControlSub(IntEnum):
     Subcommands for :attr:`Function.CONTROL` (first data byte).
     """
 
-    MOVE = 0x01  # value: 0x00 down, 0x64 up
+    MOVE = 0x01  # value: 0x00 down, 0x01..0x63 go to that percent, 0x64 up
     STOP = 0x02  # value: 0x00
     THIRD_POINT = 0x03  # value: 0x00; drive to the stored waypoint
     ANGLE = 0x04  # value: raw angle byte
@@ -251,18 +252,48 @@ def query_address(address: int) -> bytes:
     return build_frame(address, Function.QUERY, bytes([QuerySub.ADDRESS]))
 
 
+def control_move(address: int, position: int) -> bytes:
+    """
+    Drive the actuator to *position* percent (section 3.4, move subcommand).
+
+    The wire byte is the percent itself: 0x00 = fully down, 0x64 = fully up,
+    anything between = go to that position. A position only exists once both
+    limits are set — an actuator without them acknowledges the frame but does
+    not move (verified on the bench).
+    """
+    if not 0 <= position <= POSITION_MAX:
+        raise ValueError(f"position must be 0..{POSITION_MAX}, got {position}")
+    return build_frame(address, Function.CONTROL, bytes([ControlSub.MOVE, position]))
+
+
 def control_up(address: int) -> bytes:
     """
     Drive the actuator up / open (move, value 0x64).
     """
-    return build_frame(address, Function.CONTROL, bytes([ControlSub.MOVE, POSITION_UP]))
+    return control_move(address, POSITION_UP)
 
 
 def control_down(address: int) -> bytes:
     """
     Drive the actuator down / close (move, value 0x00).
     """
-    return build_frame(address, Function.CONTROL, bytes([ControlSub.MOVE, POSITION_DOWN]))
+    return control_move(address, POSITION_DOWN)
+
+
+def unset_limits(position: int) -> Tuple[bool, bool]:
+    """
+    Decode a position byte into ``(upper_unset, lower_unset)`` limit flags.
+
+    A numeric position (0..100) means both limits are set; the markers
+    0xFC / 0xFE / 0xFD name the missing limit(s) per section 3.2 of the spec.
+    """
+    if position == POSITION_BOTH_LIMITS_UNSET:
+        return True, True
+    if position == POSITION_UPPER_LIMIT_UNSET:
+        return True, False
+    if position == POSITION_LOWER_LIMIT_UNSET:
+        return False, True
+    return False, False
 
 
 def control_stop(address: int) -> bytes:

@@ -1,16 +1,18 @@
 """
 Device controls: the control table of one actuator and its state publishing.
 
-Single source of truth for every MQTT control of a device — the read-only
-position and address indicators, the motion / waypoint / slat-angle controls and
-the address change — with their display order and bilingual titles.
+Single source of truth for every MQTT control of a device — the position
+slider, the limit alarms, the address indicator, the motion / waypoint /
+slat-angle controls and the address change — with their display order and
+bilingual titles.
 
 The command callbacks only enqueue onto the shared CommandQueue; the daemon's
 poll loop drains it, so all bus I/O stays on the one thread that owns the bus.
 The "New Address" field is input-only (it sends no frames); the "Set New
 Address" button applies the entered value, using the method chosen by the
 config's learning_type. The slat-angle controls exist only for slat/lamella
-curtains (config slat_angle_mode other than "none"). Reverse is a config
+curtains (config slat_angle_mode other than "none"); everything else, the
+position slider included, exists for every actuator. Reverse is a config
 setting (ActuatorConfig.reverse), applied at startup — it has no widget control.
 """
 
@@ -26,32 +28,25 @@ ORDER_OPEN = 1
 ORDER_STOP = 2
 ORDER_CLOSE = 3
 ORDER_POSITION = 4
-ORDER_ADDRESS = 5
-ORDER_NEW_ADDRESS = 6
-ORDER_APPLY_ADDRESS = 7
-ORDER_WAYPOINT_SET = 8
-ORDER_WAYPOINT_GO = 9
-ORDER_SLAT_ANGLE = 10
-ORDER_SLAT_ANGLE_CURRENT = 11
+ORDER_ALARM_UPPER_LIMIT = 5
+ORDER_ALARM_LOWER_LIMIT = 6
+ORDER_ADDRESS = 7
+ORDER_NEW_ADDRESS = 8
+ORDER_APPLY_ADDRESS = 9
+ORDER_WAYPOINT_SET = 10
+ORDER_WAYPOINT_GO = 11
+ORDER_SLAT_ANGLE = 12
+ORDER_SLAT_ANGLE_CURRENT = 13
 
 # Whether the wire scale is compressed, per the config's slat_angle_mode. A
 # lookup instead of string comparisons: an unknown mode fails at startup here,
 # whatever the config loader let through.
 _SCALE_COMPRESSED = {"none": False, "direct": False, "compressed": True}
 
-# Human-readable position markers. Control VALUES are not translated by the web
-# UI, so — unlike code text, which stays English — these are Russian to match
-# the panel language.
-_LIMIT_MARKERS = {
-    protocol.POSITION_BOTH_LIMITS_UNSET: "пределы не заданы",
-    protocol.POSITION_LOWER_LIMIT_UNSET: "нижний предел не задан",
-    protocol.POSITION_UPPER_LIMIT_UNSET: "верхний предел не задан",
-}
-
 
 def _fmt_address(address: int) -> str:
     """
-    Format an RS-485 address as a decimal string for the read-only indicator.
+    Format an RS-485 address for the read-only indicator (a plain integer).
 
     Decimal to match the "New Address" input field, so the shown address and a
     value being entered are directly comparable. The control's initial value and
@@ -78,7 +73,8 @@ class DeviceControls:
     Every MQTT control of one actuator: creation, callbacks and telemetry.
 
     ``reverse`` (config-only, see ActuatorConfig.reverse) remaps the UI at
-    startup — swapped open/close and a mirrored position; it never reaches the wire.
+    startup — swapped open/close and a mirrored position, both shown and
+    commanded; it never reaches the wire.
     """
 
     def __init__(self, dev, actuator, queue):
@@ -90,6 +86,9 @@ class DeviceControls:
         self._move_key = ("move", actuator.cfg.device_id)
         self._addr_key = ("addr", actuator.cfg.device_id)
         self._waypoint_key = ("waypoint", actuator.cfg.device_id)
+        # None until the first position read (unknown, so a position command is
+        # still passed on); True/False once the actuator reported a marker/number.
+        self._limits_unset = None
         try:
             self._compressed = _SCALE_COMPRESSED[actuator.cfg.slat_angle_mode]
         except KeyError:
@@ -102,21 +101,49 @@ class DeviceControls:
         Publish every control of the device and subscribe the command topics.
 
         One row per control: (name, type, order, ru title, en title, handler,
-        extra add_control kwargs). Read-only indicators (position, address,
+        extra add_control kwargs). Read-only indicators (limit alarms, address,
         current slat angle) have no handler; pushbuttons carry no retained value
-        (initial None). The slat-angle controls are added only when the config
-        enables them (slat_angle_mode other than "none").
+        (initial None), and neither do the position slider, the alarms and the
+        current slat angle until the first successful read. The slat-angle
+        controls are added only when the config enables them (slat_angle_mode
+        other than "none").
         """
-        readonly = {"readonly": True}
         button = {"initial": None}
+        alarm = {"readonly": True, "initial": None}
         rows = [
             ("up", "pushbutton", ORDER_OPEN, "Открыть", "Open", self._on_up, button),
             ("stop", "pushbutton", ORDER_STOP, "Стоп", "Stop", self._on_stop, button),
             ("down", "pushbutton", ORDER_CLOSE, "Закрыть", "Close", self._on_down, button),
-            ("position_current", "text", ORDER_POSITION, "Позиция", "Position", None, readonly),
+            (
+                "position",
+                "range",
+                ORDER_POSITION,
+                "Позиция",
+                "Position",
+                self._on_position,
+                {"min_value": 0, "max_value": protocol.POSITION_MAX, "initial": None},
+            ),
+            (
+                "alarm_upper_limit_unset",
+                "alarm",
+                ORDER_ALARM_UPPER_LIMIT,
+                "Верхний предел не задан",
+                "Upper Limit Not Set",
+                None,
+                alarm,
+            ),
+            (
+                "alarm_lower_limit_unset",
+                "alarm",
+                ORDER_ALARM_LOWER_LIMIT,
+                "Нижний предел не задан",
+                "Lower Limit Not Set",
+                None,
+                alarm,
+            ),
             (
                 "address",
-                "text",
+                "value",
                 ORDER_ADDRESS,
                 "Адрес",
                 "Address",
@@ -175,12 +202,12 @@ class DeviceControls:
             rows.append(
                 (
                     "slat_angle_current",
-                    "text",
+                    "value",
                     ORDER_SLAT_ANGLE_CURRENT,
                     "Текущий угол ламелей",
                     "Current Slat Angle",
                     None,
-                    readonly,
+                    {"readonly": True, "units": "deg", "initial": None},
                 )
             )
         for name, control_type, order, ru_title, en_title, handler, extra in rows:
@@ -190,28 +217,42 @@ class DeviceControls:
 
     def publish_telemetry(self):
         """
-        Poll and publish the position (and slat angle when enabled).
+        Poll and publish the position, the limit alarms and the slat angle.
 
         Meant to be called while the device is online; a silent device simply
-        keeps its last published state.
+        keeps its last published state. A limits-unset marker instead of a
+        position raises the matching alarm(s) and flags the position slider
+        with a read error ("r") — the actuator has no position until both
+        limits exist; a numeric position clears them and is published
+        (mirrored when reverse is on).
         """
         pos = self._actuator.query_position()
         if pos is not None:
-            text = _LIMIT_MARKERS.get(pos)
-            if text is None:
-                shown = 100 - pos if self._reverse and pos <= 100 else pos
-                text = f"{shown} %"
-            self._dev.set_value("position_current", text)
+            upper_unset, lower_unset = protocol.unset_limits(pos)
+            self._limits_unset = upper_unset or lower_unset
+            self._dev.set_value("alarm_upper_limit_unset", int(upper_unset))
+            self._dev.set_value("alarm_lower_limit_unset", int(lower_unset))
+            if self._limits_unset:
+                self._dev.set_control_error("position", "r")
+            elif pos <= protocol.POSITION_MAX:
+                self._dev.set_control_error("position", "")
+                self._dev.set_value("position", self._mirror(pos))
         if self._actuator.cfg.slat_angle_mode == "none":
             return
         raw = self._actuator.query_angle_raw()
         if raw is not None:
             # Clamp: a raw byte outside the scale (e.g. a marker) must not push
-            # an out-of-range value into the 0..180 range control.
+            # an out-of-range value into the 0..180 indicator.
             degrees = max(0, min(protocol.ANGLE_MAX, protocol.raw_to_angle(raw, self._compressed)))
             # Only the read-only indicator — writing the live angle into the
             # slat_angle range would fight the user's setpoint while the motor moves.
-            self._dev.set_value("slat_angle_current", f"{degrees} °")
+            self._dev.set_value("slat_angle_current", degrees)
+
+    def _mirror(self, position: int) -> int:
+        """
+        Apply the reverse setting to a percent position (shown or commanded).
+        """
+        return protocol.POSITION_MAX - position if self._reverse else position
 
     # ------------------------------------------------------------------ #
     # command callbacks (paho signature: client, userdata, message)
@@ -236,6 +277,34 @@ class DeviceControls:
         movement.
         """
         self._queue.put(PRIO_STOP, self._move_key, self._actuator.stop)
+
+    def _on_position(self, _client, _userdata, msg):
+        """
+        Queue driving to the requested position (movement priority).
+
+        Refused while the actuator reports missing limits: it acknowledges such
+        a frame but does not move, so passing it on would only mislead. Reverse
+        mirrors the percent before it reaches the wire. The shared move key
+        means a stop cancels it and a newer target replaces it; the setpoint is
+        echoed into the slider once sent, and telemetry then tracks the motion.
+        """
+        target = self._parse_int_payload(msg)
+        if target is None or not 0 <= target <= protocol.POSITION_MAX:
+            return
+        if self._limits_unset:
+            logger.warning(
+                "%s: position command %d ignored: the actuator has no travel limits set",
+                self._dev.id,
+                target,
+            )
+            return
+        position = self._mirror(target)
+
+        def action():
+            self._actuator.move_to(position)
+            self._dev.set_value("position", target)
+
+        self._queue.put(PRIO_MOVE, self._move_key, action)
 
     def _on_point3_set(self, *_):
         """

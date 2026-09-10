@@ -6,8 +6,9 @@ uses an injected transport (:class:`~wb.dauerhaft_pro.transport.SerialTransport`
 or a test fake) to talk to the device.
 
 Supported operations:
-  * :meth:`up` / :meth:`down` / :meth:`stop` / :meth:`set_angle_raw` /
-    :meth:`go_third_point` / :meth:`set_third_point` — drive the motor;
+  * :meth:`up` / :meth:`down` / :meth:`stop` / :meth:`move_to` /
+    :meth:`set_angle_raw` / :meth:`go_third_point` / :meth:`set_third_point` —
+    drive the motor;
   * :meth:`query_position` / :meth:`query_angle_raw` — read the state;
   * :meth:`set_address` / :meth:`set_address_learning` — change an RS-485 address;
   * :meth:`ping` — read the device address, used as a liveness probe.
@@ -48,7 +49,6 @@ OFFLINE_AFTER_MISSES = 3
 class ActuatorConfig:
     device_id: str
     name: str
-    curtain_type: str
     learning_type: str
     address: int
     port: PortConfig
@@ -87,6 +87,15 @@ class Actuator:
         Stop motion.
         """
         self._exchange(protocol.control_stop(self.cfg.address))
+
+    def move_to(self, position: int):
+        """
+        Drive to *position* percent (0 = down / closed, 100 = up / open).
+
+        Meaningful only once both limits are set — the caller checks that; an
+        actuator without limits acknowledges the frame but does not move.
+        """
+        self._exchange(protocol.control_move(self.cfg.address, position))
 
     def set_angle_raw(self, raw_angle: int):
         """
