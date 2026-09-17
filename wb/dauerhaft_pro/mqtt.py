@@ -10,7 +10,7 @@ Meta format (per WB conventions)::
 
     /devices/<id>/meta         {"driver":..., "title":{"en":..,"ru":..}}  (single JSON)
     /devices/<id>/meta/name    "<title>"                (legacy backward-compat only)
-    /devices/<id>/meta/error   ""|"r"/"w"/"p"           (retained; non-empty = unavailable, LWT target)
+    /devices/<id>/meta/error   ""|"r"/"w"/"p"           (retained; non-empty = unavailable)
     /devices/<id>/controls/<c>/meta  {"type","readonly","order","title":{...}}
     /devices/<id>/controls/<c>       "<value>"          (retained)
     /devices/<id>/controls/<c>/on    <- command (subscribed)
@@ -28,11 +28,7 @@ DRIVER_NAME = "wb-dauerhaft-pro"
 
 def build_error_topic(device_id: str) -> str:
     """
-    Build the device-level availability/error topic for a device id.
-
-    The single source of the topic format; a module-level helper (not a
-    WbDevice method) so the daemon can set the Last Will topic before any
-    WbDevice exists — the will must be registered before the client connects.
+    Build the device-level availability/error topic for a device id: the single source of the format.
     """
     return f"/devices/{device_id}/meta/error"
 

@@ -5,6 +5,8 @@ wb-dauerhaft-pro (1.1.0) stable; urgency=medium
     only after the first CONNACK; exit with 2 when the broker rejects the login
   * Exit with 0 on SIGINT/SIGTERM; report when the retained topics cannot be removed
     because the broker is not connected
+  * Drop the MQTT Last Will on the first device's error topic: after a crash it only
+    left a retained flag behind, the restart republishes the real state anyway
 
  -- Ekaterina Volkova <ekaterina.volkova@wirenboard.com>  Thu, 17 Sep 2026 16:05:30 +0000
 
