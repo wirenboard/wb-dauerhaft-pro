@@ -43,7 +43,7 @@ class FakeMessageInfo:
         return self.waited
 
 
-class FakeMQTTClient:
+class FakeMQTTClient:  # pylint: disable=too-many-instance-attributes  # records every call the tests check
     """Just enough of wb_common's MQTTClient for the announcement path."""
 
     instances = []
@@ -121,7 +121,6 @@ def test_config_error_is_published_retained(monkeypatch):
     main_mod._announce_config_error("unix:///run/mosquitto.sock", "device ids must be unique")
     client = FakeMQTTClient.instances[-1]
     assert client.started and client.stopped
-    assert client.retry_first_connection is True  # an unavailable broker is waited for, not exited on
     assert (
         "/devices/wb-dauerhaft-pro/controls/config_error",
         "device ids must be unique",
@@ -234,5 +233,7 @@ def test_signal_while_waiting_for_the_broker_exits_success(tmp_path, monkeypatch
         assert main_mod.main() == main_mod.EXIT_SUCCESS
     finally:
         signal.signal(signal.SIGTERM, saved_handler)
-    assert DownBrokerClient.instances[-1].stopped
+    client = DownBrokerClient.instances[-1]
+    assert client.retry_first_connection is True  # paho retries in its thread; the daemon waits
+    assert client.stopped
     assert "retained topics cannot be removed" in caplog.text
