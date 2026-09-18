@@ -68,6 +68,13 @@ class FakeMQTTClient:
     def is_connected(self):
         return self.started and not self.stopped
 
+    def wait_for_connection(self, stop_requested):
+        """Like wb-common's: connected wins unless a stop was already requested."""
+        while not stop_requested.wait(0.05):
+            if self.is_connected():
+                return True
+        return False
+
     def will_set(self, topic, payload=None, qos=0, retain=False):
         pass
 

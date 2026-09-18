@@ -172,7 +172,7 @@ def _clear_config_error(broker_url: str) -> None:
         logger.warning("cannot clear a stale config error: %s", exc)
 
 
-class Daemon:
+class Daemon:  # pylint: disable=too-many-instance-attributes  # the poll loop's state lives in one place
     """
     The poll loop and its MQTT lifecycle: wait for the broker, serve the
     configured actuators until a signal or a rejected login, clean up.
@@ -188,9 +188,9 @@ class Daemon:
         self._rpc = rpcclient.TMQTTRPCClient(client)
         self._queue = CommandQueue()  # MQTT callbacks enqueue; the poll loop drains on the bus thread
         self._entries = []  # [(WbDevice, Actuator, DeviceControls)]
-        self._connected = threading.Event()
-        # None while running; set by stop() (a signal) or by a rejected login
-        self._exit_code: Optional[int] = None
+        self._reconnected = threading.Event()  # a (re)connect the poll loop has yet to recover from
+        self._stop = threading.Event()
+        self._exit_code = EXIT_SUCCESS
         client.on_message = self._rpc.on_mqtt_message
         client.on_connect = self._on_connect
 
@@ -198,7 +198,7 @@ class Daemon:
         """
         Stop the poll loop (SIGINT / SIGTERM).
         """
-        self._exit_code = EXIT_SUCCESS
+        self._stop.set()
         self._queue.ready.set()  # wake the poll loop out of its wait at once
 
     def run(self) -> int:
@@ -209,10 +209,8 @@ class Daemon:
         # are created only after the first CONNACK, so their publishes and
         # subscriptions land on a live connection instead of paho's queue.
         self._client.start(retry_first_connection=True)
-        while self._exit_code is None and not self._connected.wait(1.0):
-            pass
         try:
-            if self._exit_code is None:
+            if self._client.wait_for_connection(self._stop):
                 self._create_devices()
                 self._serve()
         finally:
@@ -242,10 +240,10 @@ class Daemon:
                 # a configuration problem paho would retry forever: exit with 2,
                 # at startup and after a reconnect alike
                 self._exit_code = EXIT_INVALIDARGUMENT
-                self._queue.ready.set()
+                self.stop()
             return
         logger.info("(re)connected to broker")
-        self._connected.set()
+        self._reconnected.set()
         self._queue.ready.set()  # wake the poll loop now so re-subscribe happens immediately
 
     def _create_devices(self) -> None:
@@ -270,7 +268,7 @@ class Daemon:
                 dev_cfg.port.path,
             )
         # the devices were just published on this connection: nothing to recover yet
-        self._connected.clear()
+        self._reconnected.clear()
         logger.info("started with %d device(s)", len(self._entries))
 
     def _recover_after_reconnect(self) -> None:
@@ -290,13 +288,13 @@ class Daemon:
             logger.warning("reconnect recovery failed: %s", exc)
 
     def _serve(self) -> None:
-        while self._exit_code is None:
-            if self._connected.is_set():
-                self._connected.clear()
+        while not self._stop.is_set():
+            if self._reconnected.is_set():
+                self._reconnected.clear()
                 self._recover_after_reconnect()
             self._queue.drain()  # run queued commands (bus I/O) on this thread
             for dev, actuator, controls in self._entries:
-                if self._exit_code is not None:
+                if self._stop.is_set():
                     break  # a signal mid-pass: stop now so the cleanup runs
                 # A single device's poll must never take down the loop: an
                 # unexpected error from paho/mqttrpc outside the transport's
