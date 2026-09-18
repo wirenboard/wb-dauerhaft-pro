@@ -32,7 +32,7 @@ from . import config as cfgmod
 from .commands import CommandQueue
 from .controls import DeviceControls, publish_state
 from .device import Actuator
-from .mqtt import DRIVER_NAME, WbDevice
+from .mqtt import DRIVER_NAME, WbDevice, build_error_topic
 from .transport import SerialTransport
 
 logger = logging.getLogger(__name__)
@@ -344,6 +344,12 @@ def main() -> int:
         return EXIT_NOTRUNNING
 
     client = MQTTClient(DRIVER_NAME, broker_url=args.broker_url)
+    # Last Will: if the daemon dies ungracefully (SIGKILL / OOM / power loss),
+    # the broker marks the device unavailable. A single MQTT connection carries
+    # one will, so it covers the first configured device (enough for the common
+    # single-device setup); the poll loop keeps every device's error up to date
+    # while the daemon is alive.
+    client.will_set(build_error_topic(conf.devices[0].device_id), "r", retain=True)
     daemon = Daemon(conf, client)
 
     def _on_signal(*_):

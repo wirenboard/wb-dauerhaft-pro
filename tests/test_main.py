@@ -68,6 +68,9 @@ class FakeMQTTClient:
     def is_connected(self):
         return self.started and not self.stopped
 
+    def will_set(self, topic, payload=None, qos=0, retain=False):
+        pass
+
     def publish(self, topic, value, retain=False):
         self.published.append((topic, value, retain))
         info = FakeMessageInfo()
