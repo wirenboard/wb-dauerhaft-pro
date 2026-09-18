@@ -23,7 +23,6 @@ import os
 import signal
 import sys
 import threading
-from typing import Optional
 
 from mqttrpc import client as rpcclient
 from wb_common.mqtt_client import DEFAULT_BROKER_URL, MQTTClient
