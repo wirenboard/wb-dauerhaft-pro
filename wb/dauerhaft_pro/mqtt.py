@@ -51,7 +51,7 @@ class WbDevice:
         self._client = client
         self.id = device_id
         self._base = f"/devices/{device_id}"
-        self._controls = []
+        self._controls = {}  # control name -> its own error flag ("" = none), in creation order
         self._on_topics = []
         self._last = {}  # topic -> last published value, to skip unchanged retained publishes
         self._pending = []  # publish confirmations not yet awaited (see wait_published)
@@ -69,10 +69,13 @@ class WbDevice:
         title: Optional[Union[str, dict]] = None,
         min_value: Optional[int] = None,
         max_value: Optional[int] = None,
+        units: Optional[str] = None,
         initial="",
     ) -> None:
         """
         Publish a control's meta and, unless *initial* is None, its first value.
+
+        ``units`` is meaningful for the "value" type only (WB conventions).
         """
         meta = {"type": control_type, "readonly": readonly, "order": order}
         if title is not None:
@@ -81,8 +84,10 @@ class WbDevice:
             meta["min"] = min_value
         if max_value is not None:
             meta["max"] = max_value
+        if units is not None:
+            meta["units"] = units
         self._pub(f"{self._base}/controls/{name}/meta", json.dumps(meta, ensure_ascii=False))
-        self._controls.append(name)
+        self._controls[name] = ""
         if initial is not None:
             self.set_value(name, initial)
 
@@ -132,12 +137,34 @@ class WbDevice:
         empty string to clear it. The state is mirrored onto every control
         (``<control>/meta/error``): the panel's device list reflects only
         control-level errors, so without the mirror an unavailable device
-        looks indistinguishable from a live one there.
+        looks indistinguishable from a live one there. A control's own error
+        (:meth:`set_control_error`) shows through again once the device error
+        clears.
         """
-        value = error or ""
-        self._pub(build_error_topic(self.id), value)
+        self._pub(build_error_topic(self.id), error or "")
         for name in self._controls:
-            self._pub(f"{self._base}/controls/{name}/meta/error", value)
+            self._pub_control_error(name)
+
+    def set_control_error(self, name: str, error: str) -> None:
+        """
+        Set/clear one control's own error flag (``<control>/meta/error``).
+
+        For a value the device cannot provide right now — e.g. a position while
+        the actuator has no travel limits set — independent of the device-level
+        availability, which is mirrored on top of it while it is set.
+        """
+        self._controls[name] = error or ""
+        self._pub_control_error(name)
+
+    def _pub_control_error(self, name: str) -> None:
+        """
+        Publish a control's effective error: the device error, else its own.
+
+        The current device error is the last value published on the device
+        error topic (the dedup cache keeps it), so no separate copy is held.
+        """
+        effective = self._last.get(build_error_topic(self.id)) or self._controls.get(name, "")
+        self._pub(f"{self._base}/controls/{name}/meta/error", effective)
 
     def republish(self) -> None:
         """

@@ -56,11 +56,12 @@ def _build_entry(raw: dict, index: int) -> ActuatorConfig:
     schema would reject, so a config that skipped schema validation still fails
     at startup instead of at the first bus exchange.
     """
+    # A config saved by an older editor schema may still carry "curtain_type";
+    # the key was never used and is ignored like any other unknown key.
     try:
         entry = ActuatorConfig(
             device_id=raw["device_id"],
             name=raw["device_name"],
-            curtain_type=raw["curtain_type"],
             learning_type=raw["learning_type"],
             address=int(raw["rs485_address"]),
             port=PortConfig(path=raw["port"]),
