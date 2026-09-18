@@ -2,7 +2,7 @@
 Device controls: the control table of one actuator and its state publishing.
 
 Single source of truth for every MQTT control of a device — the position
-slider, the limit alarms, the address indicator, the motion / waypoint /
+slider, the travel-limit indicators, the address indicator, the motion / waypoint /
 slat-angle controls and the address change — with their display order and
 bilingual titles.
 
@@ -28,8 +28,8 @@ ORDER_OPEN = 1
 ORDER_STOP = 2
 ORDER_CLOSE = 3
 ORDER_POSITION = 4
-ORDER_ALARM_UPPER_LIMIT = 5
-ORDER_ALARM_LOWER_LIMIT = 6
+ORDER_UPPER_LIMIT_UNSET = 5
+ORDER_LOWER_LIMIT_UNSET = 6
 ORDER_ADDRESS = 7
 ORDER_NEW_ADDRESS = 8
 ORDER_APPLY_ADDRESS = 9
@@ -101,15 +101,18 @@ class DeviceControls:
         Publish every control of the device and subscribe the command topics.
 
         One row per control: (name, type, order, ru title, en title, handler,
-        extra add_control kwargs). Read-only indicators (limit alarms, address,
+        extra add_control kwargs). Read-only indicators (limit indicators, address,
         current slat angle) have no handler; pushbuttons carry no retained value
-        (initial None), and neither do the position slider, the alarms and the
-        current slat angle until the first successful read. The slat-angle
+        (initial None), and neither do the position slider, the limit indicators
+        and the current slat angle until the first successful read. The slat-angle
         controls are added only when the config enables them (slat_angle_mode
         other than "none").
         """
         button = {"initial": None}
-        alarm = {"readonly": True, "initial": None}
+        # The limit indicators are read-only switches (1 = the limit is not set),
+        # not alarms: an alarm at 0 is drawn as a green "OK" plate, which under a
+        # "not set" title reads as a contradiction.
+        indicator = {"readonly": True, "initial": None}
         rows = [
             ("up", "pushbutton", ORDER_OPEN, "Открыть", "Open", self._on_up, button),
             ("stop", "pushbutton", ORDER_STOP, "Стоп", "Stop", self._on_stop, button),
@@ -124,22 +127,22 @@ class DeviceControls:
                 {"min_value": 0, "max_value": protocol.POSITION_MAX, "initial": None},
             ),
             (
-                "alarm_upper_limit_unset",
-                "alarm",
-                ORDER_ALARM_UPPER_LIMIT,
+                "upper_limit_unset",
+                "switch",
+                ORDER_UPPER_LIMIT_UNSET,
                 "Верхний предел не задан",
                 "Upper Limit Not Set",
                 None,
-                alarm,
+                indicator,
             ),
             (
-                "alarm_lower_limit_unset",
-                "alarm",
-                ORDER_ALARM_LOWER_LIMIT,
+                "lower_limit_unset",
+                "switch",
+                ORDER_LOWER_LIMIT_UNSET,
                 "Нижний предел не задан",
                 "Lower Limit Not Set",
                 None,
-                alarm,
+                indicator,
             ),
             (
                 "address",
@@ -217,11 +220,11 @@ class DeviceControls:
 
     def publish_telemetry(self):
         """
-        Poll and publish the position, the limit alarms and the slat angle.
+        Poll and publish the position, the limit indicators and the slat angle.
 
         Meant to be called while the device is online; a silent device simply
         keeps its last published state. A limits-unset marker instead of a
-        position raises the matching alarm(s) and flags the position slider
+        position switches on the matching indicator(s) and flags the position slider
         with a read error ("r") — the actuator has no position until both
         limits exist; a numeric position clears them and is published
         (mirrored when reverse is on).
@@ -230,8 +233,8 @@ class DeviceControls:
         if pos is not None:
             upper_unset, lower_unset = protocol.unset_limits(pos)
             self._limits_unset = upper_unset or lower_unset
-            self._dev.set_value("alarm_upper_limit_unset", int(upper_unset))
-            self._dev.set_value("alarm_lower_limit_unset", int(lower_unset))
+            self._dev.set_value("upper_limit_unset", int(upper_unset))
+            self._dev.set_value("lower_limit_unset", int(lower_unset))
             if self._limits_unset:
                 self._dev.set_control_error("position", "r")
             elif pos <= protocol.POSITION_MAX:

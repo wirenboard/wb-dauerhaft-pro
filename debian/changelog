@@ -1,7 +1,7 @@
 wb-dauerhaft-pro (1.0.8) stable; urgency=medium
 
   * Replace the text position indicator with a writable Position slider (0..100 %)
-  * Report missing travel limits as two alarm controls (upper / lower)
+  * Report missing travel limits as two read-only switch indicators (upper / lower)
   * Publish the address and the current slat angle as numeric values
   * Drop the unused curtain type setting from the config editor
 
