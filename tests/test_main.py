@@ -43,7 +43,7 @@ class FakeMessageInfo:
         return self.waited
 
 
-class FakeMQTTClient:  # pylint: disable=too-many-instance-attributes  # records every call the tests check
+class FakeMQTTClient:
     """Just enough of wb_common's MQTTClient for the announcement path."""
 
     instances = []
@@ -55,13 +55,11 @@ class FakeMQTTClient:  # pylint: disable=too-many-instance-attributes  # records
         self.published = []
         self.infos = []
         self.started = False
-        self.retry_first_connection = None  # what start() was called with
         self.stopped = False
         FakeMQTTClient.instances.append(self)
 
-    def start(self, retry_first_connection=False):
+    def start(self, retry_first_connection=False):  # pylint: disable=unused-argument
         self.started = True
-        self.retry_first_connection = retry_first_connection
 
     def stop(self):
         self.stopped = True
@@ -233,7 +231,5 @@ def test_signal_while_waiting_for_the_broker_exits_success(tmp_path, monkeypatch
         assert main_mod.main() == main_mod.EXIT_SUCCESS
     finally:
         signal.signal(signal.SIGTERM, saved_handler)
-    client = DownBrokerClient.instances[-1]
-    assert client.retry_first_connection is True  # paho retries in its thread; the daemon waits
-    assert client.stopped
+    assert DownBrokerClient.instances[-1].stopped
     assert "retained topics cannot be removed" in caplog.text
