@@ -55,12 +55,13 @@ class FakeMQTTClient:
         self.published = []
         self.infos = []
         self.started = False
+        self.retry_first_connection = None  # what start() was called with
         self.stopped = False
         FakeMQTTClient.instances.append(self)
 
     def start(self, retry_first_connection=False):
-        del retry_first_connection
         self.started = True
+        self.retry_first_connection = retry_first_connection
 
     def stop(self):
         self.stopped = True
@@ -120,6 +121,7 @@ def test_config_error_is_published_retained(monkeypatch):
     main_mod._announce_config_error("unix:///run/mosquitto.sock", "device ids must be unique")
     client = FakeMQTTClient.instances[-1]
     assert client.started and client.stopped
+    assert client.retry_first_connection is True  # an unavailable broker is waited for, not exited on
     assert (
         "/devices/wb-dauerhaft-pro/controls/config_error",
         "device ids must be unique",
