@@ -109,6 +109,29 @@ def test_error_is_mirrored_onto_controls():
     assert ("/devices/dauerhaft_test/controls/address/meta/error", "", True) in client.published
 
 
+def test_control_error_survives_the_device_error_cycle():
+    """
+    A control's own error (set_control_error) is masked by the device-level
+    error while that is set and shows through again once the device error
+    clears — the poll loop refreshes the device error every cycle, so it must
+    not wipe a control's own flag; clearing the control's flag clears the topic.
+    """
+    # the dedup cache is the observable end state here
+    # pylint: disable=protected-access
+    client = RecordingClient()
+    dev = WbDevice(client, "dauerhaft_test", "Тест")
+    dev.add_control("position", "range", 4, initial=None)
+    dev.add_control("address", "value", 7, readonly=True, initial="95")
+    dev.set_control_error("position", "r")
+    dev.set_error("r")
+    dev.set_error("")
+    errors = {topic: value for topic, value in dev._last.items() if topic.endswith("/meta/error")}
+    assert errors["/devices/dauerhaft_test/controls/position/meta/error"] == "r"
+    assert errors["/devices/dauerhaft_test/controls/address/meta/error"] == ""
+    dev.set_control_error("position", "")
+    assert client.published[-1] == ("/devices/dauerhaft_test/controls/position/meta/error", "", True)
+
+
 def test_remove_clears_the_mirrored_control_errors():
     """
     remove() clears the mirrored control errors along with everything else, so

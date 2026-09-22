@@ -29,7 +29,6 @@ def _make_config():
     return ActuatorConfig(
         device_id="a",
         name="a",
-        curtain_type="roller",
         learning_type="physical_button",
         address=0x5F,
         port=PortConfig(path="/dev/ttyRS485-2"),

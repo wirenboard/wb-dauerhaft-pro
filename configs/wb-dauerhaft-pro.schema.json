@@ -29,22 +29,12 @@
                     "minLength": 1,
                     "propertyOrder": 2
                 },
-                "curtain_type": {
-                    "type": "string",
-                    "title": "curtain_type_title",
-                    "enum": ["roller", "sliding"],
-                    "default": "roller",
-                    "propertyOrder": 3,
-                    "options": {
-                        "enum_titles": ["curtain_type_roller", "curtain_type_sliding"]
-                    }
-                },
                 "learning_type": {
                     "type": "string",
                     "title": "learning_type_title",
                     "enum": ["physical_button", "widget_command"],
                     "default": "widget_command",
-                    "propertyOrder": 4,
+                    "propertyOrder": 3,
                     "options": {
                         "enum_titles": ["learning_type_button", "learning_type_widget"]
                     }
@@ -54,7 +44,7 @@
                     "title": "rs485_address_title",
                     "minimum": 1,
                     "maximum": 254,
-                    "propertyOrder": 5
+                    "propertyOrder": 4
                 },
                 "port": {
                     "type": "string",
@@ -69,7 +59,7 @@
                         "/dev/ttyMOD4"
                     ],
                     "default": "/dev/ttyRS485-1",
-                    "propertyOrder": 6
+                    "propertyOrder": 5
                 },
                 "slat_angle_mode": {
                     "type": "string",
@@ -77,7 +67,7 @@
                     "description": "slat_angle_mode_description",
                     "enum": ["none", "direct", "compressed"],
                     "default": "none",
-                    "propertyOrder": 7,
+                    "propertyOrder": 6,
                     "options": {
                         "enum_titles": [
                             "slat_angle_mode_none",
@@ -92,10 +82,10 @@
                     "description": "reverse_description",
                     "default": false,
                     "_format": "checkbox",
-                    "propertyOrder": 8
+                    "propertyOrder": 7
                 }
             },
-            "required": ["device_id", "device_name", "curtain_type", "learning_type", "rs485_address", "port", "slat_angle_mode"],
+            "required": ["device_id", "device_name", "learning_type", "rs485_address", "port", "slat_angle_mode"],
             "options": {
                 "disable_collapse": true,
                 "disable_edit_json": true,
@@ -146,9 +136,6 @@
             "device_id_pattern_message": "Invalid Device ID",
             "device_name_title": "Device Name",
             "device_name_description": "Displayed device name in the Wiren Board panel",
-            "curtain_type_title": "Curtain Type",
-            "curtain_type_roller": "Roller Curtain",
-            "curtain_type_sliding": "Sliding Curtain (Rail)",
             "learning_type_title": "Learning Type",
             "learning_type_button": "Button on the Actuator",
             "learning_type_widget": "Widget Command",
@@ -173,9 +160,6 @@
             "device_id_pattern_message": "Недопустимый идентификатор",
             "device_name_title": "Название",
             "device_name_description": "Отображаемое название устройства в панели Wiren Board",
-            "curtain_type_title": "Тип шторы",
-            "curtain_type_roller": "Рулонная штора",
-            "curtain_type_sliding": "Раздвижная штора (карниз)",
             "learning_type_title": "Тип обучения",
             "learning_type_button": "Кнопкой на приводе",
             "learning_type_widget": "Командой через виджет",
