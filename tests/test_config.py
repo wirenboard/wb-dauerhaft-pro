@@ -17,7 +17,6 @@ REAL_SCHEMA = os.path.join(os.path.dirname(__file__), "..", "configs", "wb-dauer
 DEVICE = {
     "device_id": "dauerhaft_5f",
     "device_name": "Штора",
-    "curtain_type": "roller",
     "learning_type": "physical_button",
     "rs485_address": 95,
     "port": "/dev/ttyRS485-2",
@@ -59,6 +58,17 @@ def test_legacy_config_without_slat_mode_passes_real_schema(tmp_path, caplog):
         conf = config.load_config(path, schema_path=REAL_SCHEMA)
     assert conf.devices[0].slat_angle_mode == "none"
     assert "device #0 (dauerhaft_5f): slat_angle_mode is not set, defaulting to none" in caplog.text
+
+
+def test_legacy_curtain_type_key_is_ignored(tmp_path):
+    """
+    A config saved by an older editor schema still carries "curtain_type"; the
+    key is unused and must pass the current schema and load unnoticed.
+    """
+    pytest.importorskip("jsonschema")
+    path = _write(tmp_path, {"devices": [dict(DEVICE, curtain_type="roller", slat_angle_mode="none")]})
+    conf = config.load_config(path, schema_path=REAL_SCHEMA)
+    assert conf.devices[0].device_id == "dauerhaft_5f"
 
 
 def test_duplicate_device_id_rejected(tmp_path):

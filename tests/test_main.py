@@ -20,7 +20,6 @@ ONE_DEVICE = {
         {
             "device_id": "dauerhaft_test",
             "device_name": "Тест",
-            "curtain_type": "curtain",
             "learning_type": "none",
             "rs485_address": 1,
             "port": "/dev/ttyRS485-1",
