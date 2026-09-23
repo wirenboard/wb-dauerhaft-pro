@@ -1,12 +1,32 @@
 """
 Daemon entry-point unit tests: a broken config ends with the NOTCONFIGURED exit
-code and a visible MQTT announcement, and the journald stream detection does
-not misfire.
+code and a visible MQTT announcement, an empty device list clears that
+announcement and ends with 7, a rejected MQTT login ends with 2, a stop signal
+while the broker is still awaited ends with 0, an unusable broker URL is an
+argument error (2), and the journald stream detection does not misfire.
 """
 
+import json
+import signal
+import threading
 from types import SimpleNamespace
 
+import pytest
+
 from wb.dauerhaft_pro import main as main_mod
+
+ONE_DEVICE = {
+    "devices": [
+        {
+            "device_id": "dauerhaft_test",
+            "device_name": "Тест",
+            "curtain_type": "curtain",
+            "learning_type": "none",
+            "rs485_address": 1,
+            "port": "/dev/ttyRS485-1",
+        }
+    ]
+}
 
 
 class FakeMessageInfo:
@@ -33,6 +53,7 @@ class FakeMQTTClient:
 
     def __init__(self, client_id, broker_url=None):
         self.client_id = client_id
+        self._client_id = client_id.encode()  # read by mqttrpc's TMQTTRPCClient
         self.broker_url = broker_url
         self.published = []
         self.infos = []
@@ -40,11 +61,30 @@ class FakeMQTTClient:
         self.stopped = False
         FakeMQTTClient.instances.append(self)
 
-    def start(self):
+    def start(self, retry_first_connection=False):  # pylint: disable=unused-argument
         self.started = True
 
     def stop(self):
         self.stopped = True
+
+    def is_connected(self):
+        return self.started and not self.stopped
+
+    def wait_for_connection(self, stop_requested):
+        """
+        Polls every 50 ms and returns False as soon as a stop is requested, even
+        when the fake counts as connected (start() ran, stop() did not); True
+        once it is connected. wb-common's real method checks is_connected()
+        first and returns True even with the stop event set, so the two differ
+        exactly in the "connected and stopped at once" race.
+        """
+        while not stop_requested.wait(0.05):
+            if self.is_connected():
+                return True
+        return False
+
+    def will_set(self, topic, payload=None, qos=0, retain=False):
+        pass
 
     def publish(self, topic, value, retain=False):
         self.published.append((topic, value, retain))
@@ -104,11 +144,29 @@ def test_config_error_announce_survives_a_dead_broker(monkeypatch):
     # pylint: disable=protected-access
 
     class DeadBrokerClient(FakeMQTTClient):
-        def start(self):
+        def start(self, retry_first_connection=False):
             raise RuntimeError("broker down")
 
     monkeypatch.setattr(main_mod, "MQTTClient", DeadBrokerClient)
     main_mod._announce_config_error("unix:///run/mosquitto.sock", "x")  # must not raise
+
+
+@pytest.mark.parametrize("url", ["tcp://host", "foo://x", "tcp://user:secret@host:none"])
+def test_unusable_broker_url_is_an_argument_error(monkeypatch, capsys, url):
+    """
+    A broker URL wb-common's client cannot use (no port, unknown scheme, non-numeric
+    port) is an argument error: argparse exits with 2 and a usage message, before any
+    MQTT client exists — and the message never echoes the URL, which may carry a password.
+    """
+    FakeMQTTClient.instances.clear()
+    monkeypatch.setattr(main_mod, "MQTTClient", FakeMQTTClient)
+    monkeypatch.setattr("sys.argv", ["wb-dauerhaft-pro", "-b", url])
+    with pytest.raises(SystemExit) as exc:
+        main_mod.main()
+    assert exc.value.code == main_mod.EXIT_INVALIDARGUMENT
+    assert not FakeMQTTClient.instances
+    err = capsys.readouterr().err
+    assert "broker URL must be" in err and "secret" not in err
 
 
 def test_journal_detection_rejects_foreign_streams(monkeypatch):
@@ -134,3 +192,71 @@ def test_journal_detection_accepts_own_stream(monkeypatch):
     monkeypatch.setattr("os.fstat", lambda _fd: SimpleNamespace(st_dev=42, st_ino=1337))
     monkeypatch.setenv("JOURNAL_STREAM", "42:1337")
     assert main_mod._detect_journal_stderr() is True
+
+
+def _write_config(tmp_path, content) -> str:
+    conf = tmp_path / "wb-dauerhaft-pro.conf"
+    conf.write_text(json.dumps(content), encoding="utf-8")
+    return str(conf)
+
+
+def test_no_devices_clears_the_config_error_and_exits_notrunning(tmp_path, monkeypatch):
+    """
+    An empty device list is not a config error: the stale config-error report
+    is cleared (retained None on its topics) and the daemon exits with 7,
+    which the unit treats as a success.
+    """
+    FakeMQTTClient.instances.clear()
+    monkeypatch.setattr(main_mod, "MQTTClient", FakeMQTTClient)
+    monkeypatch.setattr("sys.argv", ["wb-dauerhaft-pro", "-c", _write_config(tmp_path, {"devices": []})])
+    assert main_mod.main() == main_mod.EXIT_NOTRUNNING
+    client = FakeMQTTClient.instances[-1]
+    assert ("/devices/wb-dauerhaft-pro/controls/config_error", None, True) in client.published
+    assert client.stopped
+
+
+def test_rejected_login_exits_invalidargument(tmp_path, monkeypatch):
+    """
+    A broker that rejects the login (CONNACK 5) is a configuration problem:
+    the daemon stops before creating any device and exits with 2 instead of
+    letting paho retry forever.
+    """
+
+    class RejectingBrokerClient(FakeMQTTClient):
+        def start(self, retry_first_connection=False):
+            super().start(retry_first_connection)
+            self.on_connect(self, None, None, 5)  # pylint: disable=no-member  # set by Daemon
+
+    RejectingBrokerClient.instances.clear()
+    monkeypatch.setattr(main_mod, "MQTTClient", RejectingBrokerClient)
+    monkeypatch.setattr(main_mod.signal, "signal", {}.__setitem__)  # record, do not install, the handlers
+    monkeypatch.setattr("sys.argv", ["wb-dauerhaft-pro", "-c", _write_config(tmp_path, ONE_DEVICE)])
+    assert main_mod.main() == main_mod.EXIT_INVALIDARGUMENT
+    client = RejectingBrokerClient.instances[-1]
+    assert client.stopped
+    assert not any(topic.startswith("/devices/dauerhaft_test/") for topic, _v, _r in client.published)
+
+
+def test_signal_while_waiting_for_the_broker_exits_success(tmp_path, monkeypatch, caplog):
+    """
+    With the broker down the daemon waits instead of exiting with 1; its
+    SIGTERM handler fired during that wait ends it with 0 and a log line saying
+    the retained topics could not be removed.
+    """
+
+    class DownBrokerClient(FakeMQTTClient):
+        def is_connected(self):
+            return False
+
+    DownBrokerClient.instances.clear()
+    monkeypatch.setattr(main_mod, "MQTTClient", DownBrokerClient)
+    # main() replaces the root handlers, which would detach caplog; the seam is private by design
+    monkeypatch.setattr(main_mod, "_setup_logging", lambda _debug: None)  # pylint: disable=protected-access
+    monkeypatch.setattr("sys.argv", ["wb-dauerhaft-pro", "-c", _write_config(tmp_path, ONE_DEVICE)])
+    handlers = {}  # main() records its SIGINT/SIGTERM handlers here instead of installing them
+    monkeypatch.setattr(main_mod.signal, "signal", handlers.__setitem__)
+    # SIGTERM arrives while main() waits for the broker: run the handler it has registered by then
+    threading.Timer(0.1, lambda: handlers[signal.SIGTERM](signal.SIGTERM, None)).start()
+    assert main_mod.main() == main_mod.EXIT_SUCCESS
+    assert DownBrokerClient.instances[-1].stopped
+    assert "retained topics cannot be removed" in caplog.text

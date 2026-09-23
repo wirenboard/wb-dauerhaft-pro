@@ -1,3 +1,15 @@
+wb-dauerhaft-pro (1.1.0) stable; urgency=medium
+
+  * Exit with 7 when no devices are configured, after clearing the config-error report
+  * Wait for an unavailable MQTT broker instead of exiting with 1; create the devices
+    only after the first CONNACK; exit with 2 when the broker rejects the login
+  * Exit with 0 on SIGINT/SIGTERM; report when the retained topics cannot be removed
+    because the broker is not connected
+  * Reject a broker URL the MQTT client cannot use as an argument error (exit 2) instead of crashing with 1
+  * Require python3-wb-common >= 2.4.0 (MQTT client retry/wait API)
+
+ -- Ekaterina Volkova <ekaterina.volkova@wirenboard.com>  Thu, 17 Sep 2026 16:05:30 +0000
+
 wb-dauerhaft-pro (1.0.7) stable; urgency=medium
 
   * Fix cleanup with `apt purge` command

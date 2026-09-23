@@ -23,6 +23,7 @@ import os
 import signal
 import sys
 import threading
+from urllib.parse import urlparse
 
 from mqttrpc import client as rpcclient
 from wb_common.mqtt_client import DEFAULT_BROKER_URL, MQTTClient
@@ -37,16 +38,18 @@ from .transport import SerialTransport
 logger = logging.getLogger(__name__)
 
 # WB service exit-code contract (matches the python-service template):
-#   6 = bad config -> systemd NOTCONFIGURED; RestartPreventExitStatus stops a
-#       restart loop until the user fixes the config;
-#   7 = clean exit on a signal -> SuccessExitStatus;
-#   1 = transient failure (e.g. the broker is not up yet) -> NOT in
-#       RestartPreventExitStatus, so Restart=on-failure keeps retrying it.
-# argparse exits 2 on bad command-line arguments; the unit lists 2 as
-# non-restartable too, since bad arguments will not fix themselves on a restart.
+#   0 = clean exit on a signal;
+#   2 = bad command-line arguments (argparse) or a login the broker rejects;
+#   6 = bad config -> systemd NOTCONFIGURED;
+#   7 = nothing to do (no devices configured) -> SuccessExitStatus.
+# The unit lists 2 and 6 in RestartPreventExitStatus: neither fixes itself on
+# a restart. An unavailable broker is not an exit at all: paho retries it.
+EXIT_SUCCESS = 0
+EXIT_INVALIDARGUMENT = 2
 EXIT_CONFIG_ERROR = 6
-EXIT_SIGNAL = 7
-EXIT_FAILURE = 1
+EXIT_NOTRUNNING = 7
+# CONNACK codes for a rejected login: bad user name or password, not authorized
+MQTT_AUTH_ERRORS = (4, 5)
 
 
 def _detect_journal_stderr() -> bool:
@@ -153,6 +156,186 @@ def _announce_config_error(broker_url: str, message: str) -> None:
         logger.warning("cannot publish the config error to MQTT: %s", exc)
 
 
+def _clear_config_error(broker_url: str) -> None:
+    """
+    Best-effort: remove the config-error report a previous start may have left.
+
+    The counterpart of :func:`_announce_config_error` for a daemon that has
+    nothing else to do (no devices configured) and exits right away.
+    """
+    try:
+        client = MQTTClient(DRIVER_NAME, broker_url=broker_url)
+        client.start()
+        _config_error_device(client).remove()  # waits for the clears before stop()
+        client.stop()
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning("cannot clear a stale config error: %s", exc)
+
+
+class Daemon:  # pylint: disable=too-many-instance-attributes  # the poll loop's state lives in one place
+    """
+    The poll loop and its MQTT lifecycle: wait for the broker, serve the
+    configured actuators until a signal or a rejected login, clean up.
+
+    Command callbacks and ``on_connect`` run on the MQTT network thread and
+    never touch the bus or a WbDevice: they set events, and ``on_connect`` on
+    a rejected login also stores the exit code that :meth:`run` returns. The
+    main thread (:meth:`run`) owns all bus I/O and every WbDevice, so access
+    to the half-duplex bus is serialized by construction.
+    """
+
+    def __init__(self, conf: cfgmod.Config, client) -> None:
+        self._conf = conf
+        self._client = client
+        self._rpc = rpcclient.TMQTTRPCClient(client)
+        self._queue = CommandQueue()  # MQTT callbacks enqueue; the poll loop drains on the bus thread
+        self._entries = []  # [(WbDevice, Actuator, DeviceControls)]
+        self._reconnected = threading.Event()  # a (re)connect the poll loop has yet to recover from
+        self._stop = threading.Event()
+        self._exit_code = EXIT_SUCCESS
+        client.on_message = self._rpc.on_mqtt_message
+        client.on_connect = self._on_connect
+
+    def stop(self) -> None:
+        """
+        Stop the poll loop. Called by the SIGINT / SIGTERM handlers on the main
+        thread and by :meth:`_on_connect` on the network thread when the broker
+        rejects the login (the exit code is set to 2 before the call).
+        """
+        self._stop.set()
+        self._queue.ready.set()  # wake the poll loop out of its wait at once
+
+    def run(self) -> int:
+        """
+        Serve until a signal or a rejected login; returns the exit code.
+        """
+        try:
+            # An unavailable broker is retried by paho's network thread. The devices
+            # are created only after the first CONNACK, so their publishes and
+            # subscriptions land on a live connection instead of paho's queue.
+            self._client.start(retry_first_connection=True)
+            if self._client.wait_for_connection(self._stop):
+                self._create_devices()
+                self._serve()
+        finally:
+            logger.info("shutting down")
+            if self._client.is_connected():
+                for dev, _actuator, _controls in self._entries:
+                    dev.remove()  # publishes the retained clears and waits them out
+            else:
+                logger.error("MQTT broker is not connected, retained topics cannot be removed")
+            self._client.stop()
+        return self._exit_code
+
+    def _on_connect(self, _client, _userdata, _flags, rc):
+        """
+        Flag a (re)connect for the poll loop to recover on the main thread.
+
+        Runs on the MQTT network thread, so it only sets events:
+        - the recovery it triggers touches WbDevice state owned by the poll
+          loop, so it must run on that thread, not here;
+        - waking ``queue.ready`` runs that recovery at once instead of after the
+          poll interval, so a command pressed in the gap is not lost (its topic
+          is not re-subscribed yet).
+        """
+        if rc != 0:
+            logger.error("broker refused connection, rc=%d", rc)
+            if rc in MQTT_AUTH_ERRORS:
+                # a configuration problem paho would retry forever: exit with 2,
+                # at startup and after a reconnect alike
+                self._exit_code = EXIT_INVALIDARGUMENT
+                self.stop()
+            return
+        logger.info("(re)connected to broker")
+        self._reconnected.set()
+        self._queue.ready.set()  # wake the poll loop now so re-subscribe happens immediately
+
+    def _create_devices(self) -> None:
+        # A previous start may have left a config-error report in the panel (see
+        # _announce_config_error); this start got past config loading, so clear it.
+        try:
+            _config_error_device(self._client).remove()
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.warning("cannot clear a stale config error: %s", exc)
+        transport = SerialTransport(self._rpc)
+        for dev_cfg in self._conf.devices:
+            actuator = Actuator(dev_cfg, transport)
+            dev = WbDevice(self._client, dev_cfg.device_id, dev_cfg.name)
+            controls = DeviceControls(dev, actuator, self._queue)
+            controls.create()
+            dev.set_error("r")  # start unavailable until the first successful poll clears it
+            self._entries.append((dev, actuator, controls))
+            logger.info(
+                "configured %s (addr 0x%02X) on %s",
+                dev_cfg.device_id,
+                dev_cfg.address,
+                dev_cfg.port.path,
+            )
+        # the devices were just published on this connection: nothing to recover yet
+        self._reconnected.clear()
+        logger.info("started with %d device(s)", len(self._entries))
+
+    def _recover_after_reconnect(self) -> None:
+        # Recover on the main thread (it owns WbDevice state). A reconnect
+        # drops mqttrpc's reply subscription and the command subscriptions,
+        # and retained state does not survive a broker restart. So:
+        #   - reset mqttrpc's subscription cache,
+        #   - replay every device's retained topics,
+        #   - re-subscribe its command topics.
+        # Guarded like the poll so a paho/mqttrpc hiccup can't kill the loop.
+        try:
+            self._rpc.subscribes.clear()
+            for dev, _actuator, _controls in self._entries:
+                dev.republish()
+                dev.resubscribe()
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.warning("reconnect recovery failed: %s", exc)
+
+    def _serve(self) -> None:
+        while not self._stop.is_set():
+            if self._reconnected.is_set():
+                self._reconnected.clear()
+                self._recover_after_reconnect()
+            self._queue.drain()  # run queued commands (bus I/O) on this thread
+            for dev, actuator, controls in self._entries:
+                if self._stop.is_set():
+                    break  # a signal mid-pass: stop now so the cleanup runs
+                # A single device's poll must never take down the loop: an
+                # unexpected error from paho/mqttrpc outside the transport's
+                # handled classes would otherwise kill the daemon.
+                try:
+                    actuator.ping()
+                    publish_state(dev, actuator)
+                    if actuator.online:
+                        controls.publish_telemetry()  # position (and slat angle) while reachable
+                except Exception as exc:  # pylint: disable=broad-except
+                    logger.warning("poll of %s failed: %s", dev.id, exc)
+            # Sleep until the next poll, a queued command, a (re)connect or a
+            # signal — whichever comes first (they all set queue.ready).
+            self._queue.ready.wait(self._conf.check_interval_s)
+
+
+def _broker_url(value: str) -> str:
+    """
+    argparse type for -b: the URL forms wb-common's MQTTClient accepts, anything else is exit 2.
+
+    The message deliberately omits the URL: it may carry a password, and argparse
+    prints it to stderr (the journal). A non-numeric port makes ``parsed.port``
+    raise ValueError, which is the same argument error.
+    """
+    try:
+        parsed = urlparse(value)
+        if parsed.scheme == "unix" and parsed.path:
+            return value
+        if parsed.scheme in ("tcp", "mqtt-tcp", "ws") and parsed.port:
+            return value
+    except ValueError:
+        pass
+    raise argparse.ArgumentTypeError(
+        "broker URL must be unix:///path or tcp://host:port (also mqtt-tcp://, ws://)"
+    )
+
+
 def main() -> int:
     """
     Entry point: parse arguments, load the config and run the poll loop.
@@ -162,6 +345,7 @@ def main() -> int:
     parser.add_argument(
         "-b",
         "--broker-url",
+        type=_broker_url,
         default=DEFAULT_BROKER_URL,
         help="MQTT broker url (default: mosquitto unix socket; tcp://host:port for debugging)",
     )
@@ -178,126 +362,27 @@ def main() -> int:
     if conf.debug and not args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
 
+    if not conf.devices:
+        logger.info("no devices configured in %s, nothing to do", args.config)
+        _clear_config_error(args.broker_url)
+        return EXIT_NOTRUNNING
+
     client = MQTTClient(DRIVER_NAME, broker_url=args.broker_url)
     # Last Will: if the daemon dies ungracefully (SIGKILL / OOM / power loss),
     # the broker marks the device unavailable. A single MQTT connection carries
     # one will, so it covers the first configured device (enough for the common
     # single-device setup); the poll loop keeps every device's error up to date
     # while the daemon is alive.
-    if conf.devices:
-        client.will_set(build_error_topic(conf.devices[0].device_id), "r", retain=True)
-    rpc = rpcclient.TMQTTRPCClient(client)
-    client.on_message = rpc.on_mqtt_message
-    try:
-        client.start()  # connect (unix socket by default) + network thread
-    except Exception as exc:  # pylint: disable=broad-except
-        # transient (mosquitto not up yet / restarting): exit with a restartable
-        # code so systemd's Restart=on-failure retries, instead of a code in
-        # RestartPreventExitStatus that would leave the daemon permanently down
-        logger.error("cannot connect to broker %s: %s", args.broker_url, exc)
-        return EXIT_FAILURE
-    # A previous start may have left a config-error report in the panel (see
-    # _announce_config_error); this start got past config loading, so clear it.
-    try:
-        _config_error_device(client).remove()
-    except Exception as exc:  # pylint: disable=broad-except
-        logger.warning("cannot clear a stale config error: %s", exc)
-    transport = SerialTransport(rpc)
-
-    queue = CommandQueue()  # MQTT callbacks enqueue; the poll loop drains on the bus thread
-    entries = []  # [(WbDevice, Actuator, DeviceControls)]
-    for dev_cfg in conf.devices:
-        actuator = Actuator(dev_cfg, transport)
-        dev = WbDevice(client, dev_cfg.device_id, dev_cfg.name)
-        controls = DeviceControls(dev, actuator, queue)
-        controls.create()
-        dev.set_error("r")  # start unavailable until the first successful poll clears it
-        entries.append((dev, actuator, controls))
-        logger.info(
-            "configured %s (addr 0x%02X) on %s",
-            dev_cfg.device_id,
-            dev_cfg.address,
-            dev_cfg.port.path,
-        )
-
-    reconnected = threading.Event()
-
-    def _on_connect(_client, _userdata, _flags, rc):
-        """
-        Flag a (re)connect for the poll loop to recover on the main thread.
-
-        Runs on the MQTT network thread, so it only sets events:
-        - the recovery it triggers touches WbDevice state owned by the poll
-          loop, so it must run on that thread, not here;
-        - waking ``queue.ready`` runs that recovery at once instead of after the
-          poll interval, so a command pressed in the gap is not lost (its topic
-          is not re-subscribed yet).
-        """
-        if rc != 0:
-            logger.error("broker refused connection, rc=%d", rc)
-            return
-        logger.info("(re)connected to broker")
-        reconnected.set()
-        queue.ready.set()  # wake the poll loop now so re-subscribe happens immediately
-
-    client.on_connect = _on_connect
-
-    stop = threading.Event()
+    client.will_set(build_error_topic(conf.devices[0].device_id), "r", retain=True)
+    daemon = Daemon(conf, client)
 
     def _on_signal(*_):
-        """
-        Stop the poll loop on SIGINT / SIGTERM.
-        """
         logger.info("signal received, stopping")
-        stop.set()
-        queue.ready.set()  # wake the poll loop out of its wait at once
+        daemon.stop()
 
     signal.signal(signal.SIGINT, _on_signal)
     signal.signal(signal.SIGTERM, _on_signal)
-
-    logger.info("started with %d device(s)", len(entries))
-    try:
-        while not stop.is_set():
-            if reconnected.is_set():
-                reconnected.clear()
-                # Recover on the main thread (it owns WbDevice state). A reconnect
-                # drops mqttrpc's reply subscription and the command subscriptions,
-                # and retained state does not survive a broker restart. So:
-                #   - reset mqttrpc's subscription cache,
-                #   - replay every device's retained topics,
-                #   - re-subscribe its command topics.
-                # Guarded like the poll below so a paho/mqttrpc hiccup can't kill
-                # the loop.
-                try:
-                    rpc.subscribes.clear()
-                    for dev, _actuator, _controls in entries:
-                        dev.republish()
-                        dev.resubscribe()
-                except Exception as exc:  # pylint: disable=broad-except
-                    logger.warning("reconnect recovery failed: %s", exc)
-            queue.drain()  # run queued commands (bus I/O) on this thread
-            for dev, actuator, controls in entries:
-                if stop.is_set():
-                    break  # a signal mid-pass: stop now so the finally-block cleanup runs
-                # A single device's poll must never take down the loop: an
-                # unexpected error from paho/mqttrpc outside the transport's
-                # handled classes would otherwise kill the daemon.
-                try:
-                    actuator.ping()
-                    publish_state(dev, actuator)
-                    if actuator.online:
-                        controls.publish_telemetry()  # position (and slat angle) while reachable
-                except Exception as exc:  # pylint: disable=broad-except
-                    logger.warning("poll of %s failed: %s", dev.id, exc)
-            # Sleep until the next poll, a queued command, or a signal — whichever
-            # comes first (put()/_on_signal set queue.ready).
-            queue.ready.wait(conf.check_interval_s)
-    finally:
-        logger.info("shutting down")
-        for dev, _actuator, _controls in entries:
-            dev.remove()  # publishes the retained clears and waits them out
-        client.stop()
-    return EXIT_SIGNAL
+    return daemon.run()
 
 
 if __name__ == "__main__":
